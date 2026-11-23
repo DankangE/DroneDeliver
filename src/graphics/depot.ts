@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeCompatible as mergeGeometries } from './materials';
 import { BASE, DESTINATIONS } from '../config';
 import { batteryPack } from './drone';
 import { DRONE_COLORS, KO_FONT, box, canvasTex, finish, groundPlane, ink, lamp, seeded, solid, type Surfaces } from './materials';

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeCompatible as mergeGeometries } from './materials';
 import { DESTINATIONS, type Destination } from '../config';
 import { KO_FONT, box, canvasTex, finish, groundPlane, ink, lamp, seeded, solid, strut, type Surfaces } from './materials';
 import { masonryMaterial, signMaterial } from './terrain';

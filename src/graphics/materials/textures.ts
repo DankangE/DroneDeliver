@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 let anisotropy = 16;
 
@@ -126,4 +127,17 @@ export function grainMaps(kind: Grain) {
     grains.set(kind, maps);
   }
   return maps;
+}
+
+/** mergeGeometries() needs identical attribute sets: give every piece uv1 when all have uv, otherwise drop uv1. */
+export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const allUv = pieces.every((g) => g.hasAttribute('uv'));
+  for (const g of pieces) {
+    if (allUv) withAoUv(g);
+    else g.deleteAttribute('uv1');
+  }
+  if (!allUv) for (const g of pieces) g.deleteAttribute('uv');
+  const merged = mergeGeometries(pieces);
+  if (!merged) throw new Error('mergeCompatible: incompatible geometry attributes');
+  return merged;
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeCompatible as mergeGeometries } from '../materials';
 import { solid } from '../materials';
 
 export const point = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);

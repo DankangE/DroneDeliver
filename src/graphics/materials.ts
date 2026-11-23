@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { filterTexture, setTextureQuality, withAoUv } from './materials/textures';
 import { TiledMaterial } from './materials/tiled';
 
-export { withAoUv } from './materials/textures';
+export { mergeCompatible, withAoUv } from './materials/textures';
 export {
   brushedAluminium, carbonFibre, cardboard, emissiveLedPanel, glossPlastic, mattePlastic,
   paintedSteel, rubber, tintedWindowGlass, weatheredPaintOverConcrete,

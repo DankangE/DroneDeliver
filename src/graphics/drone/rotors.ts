@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeCompatible as mergeGeometries } from '../materials';
 import { canvasTex, finish, ROTOR_BLUR_LAYER, solid } from '../materials';
 import { finishes } from './finishes';
 import { batchRigidParts, hose, point, rod, rounded, screw, tau, turned } from './parts';
