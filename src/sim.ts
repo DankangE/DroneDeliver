@@ -1,12 +1,15 @@
-import { BASE, DESTINATIONS, FLIGHT, SCORE, STAGES, type Destination, type StageDef } from './config';
+import { BASE, DESTINATIONS, FLIGHT, PRODUCTS, SCORE, STAGES, bayLetter, productById, type ProductId, type Destination, type StageDef } from './config';
 
 export type DroneState = 'pad' | 'takeoff' | 'outbound' | 'hold' | 'returning' | 'approach' | 'landing' | 'down';
 export type Fault = 'gps' | 'motor' | null;
 export type Phase = 'briefing' | 'playing' | 'clear' | 'fail';
-export type OrderStatus = 'waiting' | 'carried' | 'loaded' | 'flying' | 'delivered' | 'missed' | 'expired' | 'lost';
+export type OrderStatus = 'waiting' | 'packing' | 'carried' | 'loaded' | 'flying' | 'delivered' | 'missed' | 'expired' | 'lost';
 export type Grade = 'PERFECT' | 'GOOD' | 'OK' | 'MISS';
 
 export interface V3 { x: number; y: number; z: number }
+
+export interface OrderLine { product: ProductId; qty: number }
+export interface Box { orderId: number; contents: ProductId[]; checked: boolean; missing: OrderLine[] }
 
 export interface Order {
   id: number;
@@ -14,7 +17,7 @@ export interface Order {
   spawnedAt: number;
   deadline: number;
   status: OrderStatus;
-  slot: number | null;
+  items: OrderLine[];
   launchedAt: number | null;
 }
 
@@ -39,10 +42,11 @@ export interface Drone {
 
 export interface Package { orderId: number; pos: V3; vel: V3; drone: number }
 
-export type Carry = { kind: 'crate'; orderId: number } | { kind: 'battery' } | null;
+export type Carry = { kind: 'item'; product: ProductId } | { kind: 'crate'; orderId: number } | { kind: 'battery' } | null;
 
 export type Target =
-  | { kind: 'shelf'; slot: number }
+  | { kind: 'bay'; bay: number }
+  | { kind: 'table' }
   | { kind: 'rack' }
   | { kind: 'pad'; idx: number }
   | { kind: 'console' };
@@ -84,6 +88,7 @@ export interface Sim {
   streak: number;
   stats: Stats;
   orders: Order[];
+  box: Box | null;
   drones: Drone[];
   packages: Package[];
   wind: { x: number; z: number };
@@ -113,7 +118,7 @@ export function createSim(stageId: number): Sim {
   return {
     stage, phase: 'briefing', time: 0, timeLeft: stage.timeLimit, score: 0, streak: 0,
     stats: { delivered: 0, perfect: 0, good: 0, missed: 0, expired: 0, crashes: 0, faultsFixed: 0, swaps: 0, bestStreak: 0, trips: [] },
-    orders: [], drones, packages: [], wind: { x: 0, z: 0 }, windSeed: Math.random() * 100, selected: 0,
+    orders: [], box: null, drones, packages: [], wind: { x: 0, z: 0 }, windSeed: Math.random() * 100, selected: 0,
     nextOrderAt: 1.5, nextOrderId: 1,
     player: { x: BASE.playerStart.x, z: BASE.playerStart.z, yaw: BASE.playerStart.yaw, pitch: -0.05, mode: 'walk', carrying: null, holdProgress: 0 },
     target: null, events: [], lastDest: null,
@@ -131,35 +136,57 @@ export const comboMult = (streak: number) => Math.min(1 + streak * SCORE.comboSt
 
 // ---------------------------------------------------------------- orders
 
+const between = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+
+function orderItems(stage: StageDef): OrderLine[] {
+  const lines = between(...stage.orderLines);
+  const units = between(Math.max(lines, stage.orderUnits[0]), Math.min(lines * 3, stage.orderUnits[1]));
+  const choices = [...PRODUCTS];
+  const items: OrderLine[] = [];
+  while (items.length < lines) {
+    const [product] = choices.splice(between(0, choices.length - 1), 1);
+    items.push({ product: product.id, qty: 1 });
+  }
+  for (let i = lines; i < units; i++) {
+    const available = items.filter(line => line.qty < 3);
+    available[between(0, available.length - 1)].qty++;
+  }
+  return items;
+}
+
+export function orderText(o: Order): string {
+  return o.items.map(line => `${productById(line.product).name} ×${line.qty}`).join(' · ');
+}
+
+export const packedQty = (box: Box, id: ProductId) => box.contents.filter(item => item === id).length;
+const pending = (o: Order) => o.status === 'waiting' || o.status === 'packing' || o.status === 'carried' || o.status === 'loaded';
+const nextWaiting = (s: Sim) => s.orders.reduce<Order | undefined>((next, o) =>
+  o.status === 'waiting' && (!next || o.deadline < next.deadline) ? o : next, undefined);
+
 function spawnOrder(s: Sim) {
-  const used = new Set(s.orders.filter((o) => o.status === 'waiting').map((o) => o.slot));
-  const slot = BASE.shelfSlots.findIndex((_, i) => !used.has(i));
-  if (slot < 0) return;
   const choices = DESTINATIONS.filter((d) => d.id !== s.lastDest);
   const dest = choices[Math.floor(Math.random() * choices.length)];
   s.lastDest = dest.id;
-  const order: Order = { id: s.nextOrderId++, dest, spawnedAt: s.time, deadline: s.time + s.stage.orderDeadline, status: 'waiting', slot, launchedAt: null };
+  const order: Order = { id: s.nextOrderId++, dest, spawnedAt: s.time, deadline: s.time + s.stage.orderDeadline, status: 'waiting', items: orderItems(s.stage), launchedAt: null };
   s.orders.push(order);
-  note(s, `새 주문 #${order.id}: ${dest.id} ${dest.name}`, 'info');
+  note(s, `새 주문 #${order.id}: ${dest.id} ${dest.name} — ${orderText(order)}`, 'info');
   sfx(s, 'order');
 }
 
-const pendingCount = (s: Sim) => s.orders.filter((o) => o.status === 'waiting' || o.status === 'carried' || o.status === 'loaded').length;
-
 function updateOrders(s: Sim) {
   if (s.time >= s.nextOrderAt) {
-    if (pendingCount(s) < s.stage.maxPending) spawnOrder(s);
+    if (s.orders.filter(pending).length < s.stage.maxPending) spawnOrder(s);
     s.nextOrderAt = s.time + s.stage.orderInterval * (0.8 + Math.random() * 0.4);
   }
   for (const o of s.orders) {
-    if ((o.status === 'waiting' || o.status === 'carried' || o.status === 'loaded') && s.time > o.deadline) {
+    if (pending(o) && s.time > o.deadline) {
+      if (s.box?.orderId === o.id) s.box = null;
       if (o.status === 'carried') s.player.carrying = null;
       if (o.status === 'loaded') {
         const d = s.drones.find((dr) => dr.orderId === o.id);
         if (d) d.orderId = null;
       }
       o.status = 'expired';
-      o.slot = null;
       s.score = Math.max(0, s.score - SCORE.expiredPenalty);
       s.streak = 0;
       s.stats.expired++;
@@ -175,28 +202,38 @@ interface Spot { target: Target; x: number; z: number }
 
 export function interactables(s: Sim): Spot[] {
   const spots: Spot[] = [];
-  for (const o of s.orders) if (o.status === 'waiting' && o.slot != null) {
-    const p = BASE.shelfSlots[o.slot];
-    spots.push({ target: { kind: 'shelf', slot: o.slot }, x: p.x, z: p.z });
-  }
-  if (s.player.carrying?.kind === 'crate') {
-    BASE.shelfSlots.forEach((p, slot) => {
-      if (!s.orders.some((o) => o.status === 'waiting' && o.slot === slot)) spots.push({ target: { kind: 'shelf', slot }, x: p.x, z: p.z });
-    });
-  }
+  const carry = s.player.carrying;
+  BASE.itemBays.forEach((p, bay) => {
+    if (!carry || (carry.kind === 'item' && carry.product === PRODUCTS[bay].id)) spots.push({ target: { kind: 'bay', bay }, ...p });
+  });
+  spots.push({ target: { kind: 'table' }, ...BASE.packTable });
   spots.push({ target: { kind: 'rack' }, x: BASE.batteryRack.x, z: BASE.batteryRack.z });
   BASE.pads.forEach((p, idx) => spots.push({ target: { kind: 'pad', idx }, x: p.x, z: p.z }));
   spots.push({ target: { kind: 'console' }, x: BASE.console.x, z: BASE.console.z });
   return spots;
 }
 
+function facingBay(s: Sim) {
+  const p = s.player;
+  const first = BASE.itemBays[0];
+  const west = Math.sin(p.yaw);
+  if (west <= 0) return -1;
+  const distance = (p.x - (first.x + 0.77)) / west;
+  if (distance < 0 || distance > BASE.interactRange) return -1;
+  const hitZ = p.z - distance * Math.cos(p.yaw);
+  const bay = Math.round((hitZ - first.z) / (BASE.itemBays[1].z - first.z));
+  return BASE.itemBays[bay] && Math.hypot(first.x - p.x, BASE.itemBays[bay].z - p.z) <= BASE.interactRange ? bay : -1;
+}
+
 function findTarget(s: Sim): Target | null {
   const p = s.player;
   const fx = -Math.sin(p.yaw);
   const fz = -Math.cos(p.yaw);
+  const bay = facingBay(s);
   let best: Target | null = null;
   let bestScore = Infinity;
   for (const spot of interactables(s)) {
+    if (spot.target.kind === 'bay' && spot.target.bay !== bay) continue;
     const dx = spot.x - p.x;
     const dz = spot.z - p.z;
     const dist = Math.hypot(dx, dz);
@@ -212,15 +249,39 @@ function findTarget(s: Sim): Target | null {
 
 export interface Prompt { text: string; hold: boolean; enabled: boolean }
 
+const action = (text: string): Prompt => ({ text, hold: false, enabled: true });
+const disabled = (text: string): Prompt => ({ text, hold: false, enabled: false });
+
 export function promptFor(s: Sim, t: Target | null): Prompt | null {
-  if (!t) return null;
   const carry = s.player.carrying;
+  if (!t) {
+    if (!carry) return null;
+    const bay = facingBay(s);
+    if (bay < 0 || (carry.kind === 'item' && PRODUCTS[bay].id === carry.product)) return null;
+    t = { kind: 'bay', bay };
+  }
   switch (t.kind) {
-    case 'shelf': {
-      const o = s.orders.find((or) => or.status === 'waiting' && or.slot === t.slot);
-      if (o) return carry ? { text: '손이 꽉 찼습니다', hold: false, enabled: false } : { text: `[E] ${o.dest.id} 상자 들기 — ${o.dest.name}`, hold: false, enabled: true };
-      if (carry?.kind === 'crate') return { text: '[E] 선반에 상자 내려놓기', hold: false, enabled: true };
-      return null;
+    case 'bay': {
+      const product = PRODUCTS[t.bay];
+      if (!carry) return action(`[E] ${product.name} 1${product.unit} 꺼내기 (선반 ${bayLetter(t.bay)})`);
+      if (carry.kind !== 'item') return disabled('손이 꽉 찼습니다');
+      if (carry.product === product.id) return action(`[E] ${product.name} 선반에 돌려놓기`);
+      const name = productById(carry.product).name;
+      const particle = (name.charCodeAt(name.length - 1) - 0xac00) % 28 ? '을' : '를';
+      return disabled(`손에 ${name}${particle} 들고 있습니다`);
+    }
+    case 'table': {
+      if (carry?.kind === 'battery') return disabled('배터리를 먼저 내려놓으세요');
+      if (carry?.kind === 'crate') return s.box ? disabled('포장대를 사용 중입니다') : action('[E] 상자를 포장대에 내려놓기');
+      if (!s.box) {
+        const o = nextWaiting(s);
+        if (!o) return disabled('포장할 주문을 기다리는 중');
+        const add = carry ? ` · ${productById(carry.product).name} 넣기` : '';
+        return action(`[E] 주문 #${o.id} 포장 시작 — ${orderText(o)}${add}`);
+      }
+      if (carry) return action(`[E] 상자에 ${productById(carry.product).name} 넣기`);
+      if (s.box.checked) return action('[E] 상자 봉인');
+      return s.box.contents.length ? action('[E] 포장 확인') : disabled('선반에서 물건을 가져와 담으세요');
     }
     case 'rack':
       if (carry?.kind === 'battery') return { text: '[E] 배터리 거치대에 반납', hold: false, enabled: true };
@@ -235,6 +296,7 @@ export function promptFor(s: Sim, t: Target | null): Prompt | null {
       if (d.state !== 'pad') return { text: `${droneName(d.idx)}: ${stateLabel(d)}`, hold: false, enabled: false };
       if (carry?.kind === 'battery') return { text: `[E] 배터리 교체 (${Math.round(d.battery)}%)`, hold: false, enabled: true };
       if (d.fault === 'motor') return { text: `[E 길게] ${droneName(d.idx)} 로터 수리`, hold: true, enabled: true };
+      if (carry?.kind === 'item') return disabled('물건을 포장대 상자에 담으세요');
       if (carry?.kind === 'crate') {
         if (d.orderId != null) return { text: `${droneName(d.idx)}에 이미 화물이 있습니다`, hold: false, enabled: false };
         const o = orderById(s, carry.orderId)!;
@@ -266,6 +328,71 @@ export function needsAttention(d: Drone): boolean {
 
 // ---------------------------------------------------------------- player actions
 
+function checkBox(s: Sim, box: Box, order: Order) {
+  const errors: string[] = [];
+  let errorUnits = 0;
+  box.missing = [];
+  for (const product of PRODUCTS) {
+    const need = order.items.find(line => line.product === product.id)?.qty ?? 0;
+    const diff = packedQty(box, product.id) - need;
+    if (!diff) continue;
+    errors.push(`${product.name} ${Math.abs(diff)}${product.unit} ${diff > 0 ? '잘못 담음' : '부족'}`);
+    errorUnits += Math.abs(diff);
+    if (diff < 0) box.missing.push({ product: product.id, qty: -diff });
+    else {
+      let keep = need;
+      box.contents = box.contents.filter(id => id !== product.id || keep-- > 0);
+    }
+  }
+  box.checked = errorUnits === 0;
+  if (box.checked) {
+    note(s, '포장 확인 완료 — 봉인하세요', 'good');
+    sfx(s, 'fixed');
+  } else {
+    const penalty = errorUnits * SCORE.packErrorPenalty;
+    s.score = Math.max(0, s.score - penalty);
+    note(s, `포장 오류 -${penalty}: ${errors.join(' · ')}`, 'bad');
+    sfx(s, 'deny');
+    emit(s, { type: 'log', kind: 'pack-error', value: penalty });
+  }
+}
+
+function useTable(s: Sim) {
+  const carry = s.player.carrying;
+  if (carry?.kind === 'crate') {
+    const order = orderById(s, carry.orderId)!;
+    const contents = order.items.flatMap(line => Array<ProductId>(line.qty).fill(line.product));
+    s.box = { orderId: order.id, contents, checked: true, missing: [] };
+    order.status = 'packing';
+    s.player.carrying = null;
+    sfx(s, 'pickup');
+    return;
+  }
+
+  const order = s.box ? orderById(s, s.box.orderId)! : nextWaiting(s)!;
+  if (!s.box) {
+    order.status = 'packing';
+    s.box = { orderId: order.id, contents: [], checked: false, missing: [] };
+    emit(s, { type: 'log', kind: 'packing', value: order.id });
+  }
+  if (carry?.kind === 'item') {
+    s.box.contents.push(carry.product);
+    s.box.checked = false;
+    s.player.carrying = null;
+    sfx(s, 'pickup');
+  } else if (s.box.checked) {
+    s.player.carrying = { kind: 'crate', orderId: order.id };
+    order.status = 'carried';
+    s.box = null;
+    sfx(s, 'attach');
+    emit(s, { type: 'log', kind: 'seal', value: order.id });
+  } else if (s.box.contents.length) {
+    checkBox(s, s.box, order);
+  } else {
+    sfx(s, 'pickup');
+  }
+}
+
 export function interact(s: Sim) {
   if (s.phase !== 'playing' || s.player.mode !== 'walk') return;
   const t = s.target;
@@ -274,15 +401,13 @@ export function interact(s: Sim) {
   if (!pr.enabled || pr.hold) { if (!pr.enabled) sfx(s, 'deny'); return; }
   const p = s.player;
   switch (t.kind) {
-    case 'shelf': {
-      const o = s.orders.find((or) => or.status === 'waiting' && or.slot === t.slot);
-      if (o) { o.status = 'carried'; o.slot = null; p.carrying = { kind: 'crate', orderId: o.id }; sfx(s, 'pickup'); emit(s, { type: 'log', kind: 'pickup', value: o.id }); }
-      else if (p.carrying?.kind === 'crate') {
-        const co = orderById(s, p.carrying.orderId)!;
-        co.status = 'waiting'; co.slot = t.slot; p.carrying = null; sfx(s, 'pickup');
-      }
+    case 'bay':
+      p.carrying = p.carrying ? null : { kind: 'item', product: PRODUCTS[t.bay].id };
+      sfx(s, 'pickup');
       return;
-    }
+    case 'table':
+      useTable(s);
+      return;
     case 'rack':
       p.carrying = p.carrying?.kind === 'battery' ? null : { kind: 'battery' };
       sfx(s, 'pickup');
@@ -640,18 +765,19 @@ function updateWind(s: Sim) {
 
 // ---------------------------------------------------------------- player movement
 
-interface Box { minX: number; maxX: number; minZ: number; maxZ: number }
+interface Collider { minX: number; maxX: number; minZ: number; maxZ: number }
 
-export function colliders(s: Sim): Box[] {
+export function colliders(s: Sim): Collider[] {
   const h = BASE.hangar;
   const t = 0.3;
-  const boxes: Box[] = [
+  const boxes: Collider[] = [
     { minX: h.minX - t, maxX: h.minX + t, minZ: h.minZ, maxZ: h.maxZ },
     { minX: h.maxX - t, maxX: h.maxX + t, minZ: h.minZ, maxZ: h.maxZ },
     { minX: h.minX, maxX: h.maxX, minZ: h.minZ - t, maxZ: h.minZ + t },
     { minX: h.minX, maxX: -6.5, minZ: h.maxZ - t, maxZ: h.maxZ + t },
     { minX: 6.5, maxX: h.maxX, minZ: h.maxZ - t, maxZ: h.maxZ + t },
-    { minX: -12, maxX: -10.2, minZ: -6.4, maxZ: 3.9 },
+    { minX: -12, maxX: -10.2, minZ: -6.45, maxZ: 3.25 },
+    { minX: BASE.packTable.x - 0.62, maxX: BASE.packTable.x + 0.62, minZ: BASE.packTable.z - 1.25, maxZ: BASE.packTable.z + 1.25 },
     { minX: 10.3, maxX: 12, minZ: -2.4, maxZ: 0.4 },
     { minX: -2.8, maxX: 2.8, minZ: -9, maxZ: -8.1 },
   ];
@@ -725,36 +851,79 @@ export type LoopStep = 'order' | 'pick' | 'check' | 'seal' | 'attach' | 'launch'
 export interface Objective { text: string; step: LoopStep; at: { x: number; z: number; y: number } | null }
 
 export function objective(s: Sim): Objective {
-  const p = s.player;
-  const consoleAt = { x: BASE.console.x, z: BASE.console.z, y: 2.2 };
-  const padAt = (i: number) => ({ x: BASE.pads[i].x, z: BASE.pads[i].z, y: 2.6 });
+  const { mode, carrying } = s.player;
+  const consoleAt = { ...BASE.console, y: 2.2 };
+  const tableAt = { ...BASE.packTable, y: 2.0 };
+  const rackAt = { ...BASE.batteryRack, y: 2.4 };
+  const padAt = (i: number) => ({ ...BASE.pads[i], y: 2.6 });
+  const bayFor = (id: ProductId) => PRODUCTS.findIndex(product => product.id === id);
+  const floor = (text: string, step: LoopStep, at: NonNullable<Objective['at']>): Objective => ({
+    text: mode === 'console' ? `[Q] 나가서 ${text}` : text, step, at,
+  });
+  const free = s.drones.find(d => d.state === 'pad' && d.orderId == null);
+  const waiting = nextWaiting(s);
+  const putAway = (step: LoopStep): Objective => {
+    if (carrying?.kind === 'item') {
+      const bay = bayFor(carrying.product);
+      const order = s.box ? orderById(s, s.box.orderId) : waiting;
+      const need = order?.items.find(line => line.product === carrying.product)?.qty ?? 0;
+      const packed = s.box ? packedQty(s.box, carrying.product) : 0;
+      if (packed < need) return floor(`포장대 상자에 ${PRODUCTS[bay].name} 넣기`, step, tableAt);
+      return floor(`선반 ${bayLetter(bay)}에 ${PRODUCTS[bay].name} 돌려놓기`, step, { ...BASE.itemBays[bay], y: 2.6 });
+    }
+    if (carrying?.kind === 'crate') {
+      if (free && !free.fault) return floor(`${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, step, padAt(free.idx));
+      return floor('상자를 포장대에 내려놓기', step, tableAt);
+    }
+    return floor('충전 거치대에 배터리 반납', step, rackAt);
+  };
   const att = s.drones.find(needsAttention);
   if (att) {
-    const what = att.fault === 'gps' ? 'GPS 재보정 (F 길게)' : att.state === 'hold' ? '목표 링에 택배 투하' : '패드에 착륙';
-    return { text: `${droneName(att.idx)}: 콘솔에서 ${what}`, step: att.fault === 'gps' ? 'fly' : att.state === 'hold' ? 'drop' : 'land', at: p.mode === 'walk' ? consoleAt : null };
+    const step = att.fault === 'gps' ? 'fly' : att.state === 'hold' ? 'drop' : 'land';
+    const what = att.fault === 'gps' ? '[F 길게] GPS 재보정' : att.state === 'hold' ? '[Space] 목표 링에 투하' : '[Space] 패드에 착륙';
+    if (carrying) {
+      const next = putAway(step);
+      return { ...next, text: `${next.text} → 콘솔에서 ${droneName(att.idx)} ${what}` };
+    }
+    return { text: `콘솔에서 ${droneName(att.idx)} ${what}`, step, at: mode === 'walk' ? consoleAt : null };
   }
-  if (p.carrying?.kind === 'crate') {
-    const free = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
-    return free ? { text: `${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, step: 'attach', at: padAt(free.idx) } : { text: '빈 드론 없음 — 기다리거나 상자를 선반에 두세요', step: 'attach', at: null };
+  const broken = s.drones.find(d => d.state === 'pad' && d.fault === 'motor');
+  if (broken && carrying?.kind !== 'battery') return floor(`${broken.idx + 1}번 패드에서 [E 길게] 로터 수리`, 'service', padAt(broken.idx));
+  const low = s.drones.find(d => d.state === 'pad' && d.battery < FLIGHT.lowBattery);
+  if (carrying?.kind === 'battery') {
+    const pad = low ?? broken ?? s.drones.filter(d => d.state === 'pad').sort((a, b) => a.battery - b.battery)[0];
+    return pad ? floor(`${pad.idx + 1}번 패드에서 배터리 교체`, 'service', padAt(pad.idx)) : putAway('service');
   }
-  if (p.carrying?.kind === 'battery') {
-    const low = s.drones.filter((d) => d.state === 'pad').sort((a, b) => a.battery - b.battery)[0];
-    return low ? { text: `${droneName(low.idx)} 배터리 교체 (${low.idx + 1}번 패드)`, step: 'service', at: padAt(low.idx) } : { text: '드론이 착륙하면 배터리를 교체하세요', step: 'service', at: null };
+  if (low) {
+    if (carrying) {
+      const next = putAway('service');
+      return { ...next, text: `${next.text} → 충전 거치대에서 배터리 가져오기` };
+    }
+    return floor(`${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, 'service', rackAt);
   }
-  const broken = s.drones.find((d) => d.state === 'pad' && d.fault === 'motor');
-  if (broken) return { text: `${droneName(broken.idx)} 로터 수리: ${broken.idx + 1}번 패드에서 E 길게`, step: 'service', at: padAt(broken.idx) };
-  const low = s.drones.find((d) => d.state === 'pad' && d.battery < FLIGHT.lowBattery);
-  if (low) return { text: `${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, step: 'service', at: { x: BASE.batteryRack.x, z: BASE.batteryRack.z, y: 2.4 } };
-  const ready = s.drones.find((d) => d.state === 'pad' && d.orderId != null);
-  if (ready) return { text: `콘솔에서 ${droneName(ready.idx)} 출발`, step: 'launch', at: p.mode === 'walk' ? consoleAt : null };
-  const freeDrone = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
-  const waiting = s.orders.filter((o) => o.status === 'waiting').sort((a, b) => a.deadline - b.deadline)[0];
-  if (freeDrone && waiting && waiting.slot != null) {
-    const sl = BASE.shelfSlots[waiting.slot];
-    return { text: `화물 선반에서 ${waiting.dest.id} 상자 (${waiting.dest.name}) 들기`, step: 'pick', at: { x: sl.x, z: sl.z, y: 2.3 } };
+  if (carrying) return putAway(carrying.kind === 'item' ? 'pick' : 'attach');
+
+  const ready = s.drones.find(d => d.state === 'pad' && d.orderId != null);
+  if (s.box) {
+    const box = s.box;
+    const order = orderById(s, box.orderId)!;
+    if (box.checked && free) return floor('포장대에서 [E] 상자 봉인', 'seal', tableAt);
+    if (!box.checked) {
+      const missing = order.items.find(line => packedQty(box, line.product) < line.qty);
+      if (!missing) return floor('포장대에서 [E] 포장 확인', 'check', tableAt);
+      const bay = bayFor(missing.product);
+      const product = PRODUCTS[bay];
+      const progress = order.items.map(line => `${productById(line.product).name} ${packedQty(box, line.product)}/${line.qty}`).join(' · ');
+      return floor(`선반 ${bayLetter(bay)}에서 ${product.name} 1${product.unit} 꺼내기 · 상자 ${progress}`, 'pick', { ...BASE.itemBays[bay], y: 2.6 });
+    }
+  } else if (waiting && (free || !ready)) {
+    return floor(`포장대에서 주문 #${waiting.id} 포장 시작`, 'order', tableAt);
   }
-  if (!waiting) return { text: '다음 주문을 기다리는 중…', step: 'order', at: null };
-  return { text: '드론 비행 중 — 상태 카드를 확인하세요', step: 'fly', at: null };
+  if (ready) return { text: `콘솔에서 ${droneName(ready.idx)} 선택 후 [Space] 출발`, step: 'launch', at: mode === 'walk' ? consoleAt : null };
+  if (s.drones.some(isFlying)) return { text: '콘솔에서 비행 상태 확인 · 투하와 착륙 대기', step: 'fly', at: mode === 'walk' ? consoleAt : null };
+  const down = s.drones.find(d => d.state === 'down');
+  if (down) return { text: `${droneName(down.idx)} 회수 중 · ${Math.ceil(down.downTimer)}초 후 패드에서 정비`, step: 'service', at: padAt(down.idx) };
+  return { text: '다음 주문을 기다리는 중…', step: 'order', at: tableAt };
 }
 
 export function stageById(id: number) { return STAGES.find((st) => st.id === id); }

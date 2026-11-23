@@ -6,6 +6,7 @@
 //   npm run playtest                 # uses the installed Google Chrome
 //   CHROME_PATH=/path/to/chrome npm run playtest
 //   PLAYTEST_SPEED=3 npm run playtest   # game time-scale after the first trip
+import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,7 +43,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 const wait = (ms) => page.waitForTimeout(ms);
 const snap = () => page.evaluate(() => window.__game.snapshot());
 const g = (fn, arg) => page.evaluate(fn, arg);
-const results = { trips: [], events: [], stages: [] };
+const results = { trips: [], events: [], stages: [], packTimes: [], packErrors: [] };
 
 async function shot(name) {
   const file = join(shots, `${name}.png`);
@@ -75,15 +76,43 @@ async function ensureWalk() {
   const s = await snap();
   if (s.mode === 'console') { await releaseAll(); await press('q'); }
 }
-async function ensureConsole() {
-  let s = await snap();
-  if (s.mode === 'console') return true;
-  if (s.carrying) return false;
-  await g(() => window.__game.goto('console'));
-  await wait(60);
+async function goto(name) {
+  await g(name => window.__game.goto(name), name);
+  await page.waitForFunction(name => {
+    const { phase, target } = window.__game.snapshot();
+    if (phase !== 'playing') return true;
+    const [kind, idx] = name.split(':');
+    return target?.kind === kind && (idx === undefined || (target.bay ?? target.idx) === Number(idx));
+  }, name, { timeout: 5000 });
+}
+
+async function use(name) {
+  await goto(name);
   await press('e');
-  s = await snap();
-  return s.mode === 'console';
+}
+
+let productIds;
+const bayOf = id => `bay:${productIds.indexOf(id)}`;
+
+async function freeHands(s) {
+  if (!s.carrying) return true;
+  if (s.carrying.kind === 'item') await use(bayOf(s.carrying.product));
+  else if (s.carrying.kind === 'battery') await use('rack');
+  else if (!s.box) await use('table');
+  else {
+    const pad = s.drones.find(d => d.state === 'pad' && d.orderId == null && !d.fault);
+    if (!pad) return false;
+    await use(`pad:${pad.idx}`);
+  }
+  return !(await snap()).carrying;
+}
+
+async function ensureConsole() {
+  const s = await snap();
+  if (s.mode === 'console') return true;
+  if (!(await freeHands(s))) return false;
+  await use('console');
+  return (await snap()).mode === 'console';
 }
 async function select(idx) {
   const s = await snap();
@@ -137,29 +166,92 @@ async function handleAttention(s) {
     return true;
   }
   const err = await steerAndCommit(d.idx, 'approach', 0.8);
-  if (err != null) console.log(`  drone ${d.idx + 1} landing (pad offset ${err.toFixed(2)} m)`);
+  if (err != null) {
+    console.log(`  drone ${d.idx + 1} landing (pad offset ${err.toFixed(2)} m)`);
+    if (s.stage === 1 && !s.stats.trips.length) {
+      await page.waitForFunction(() => window.__game.sim.stats.trips.length > 0);
+      await wait(600);
+      assert.equal((await snap()).mode, 'console');
+      await shot('05b-q-prompt');
+    }
+  }
   return true;
 }
 
 async function loadDrone(s) {
-  const free = s.drones.find((d) => d.state === 'pad' && d.orderId == null && !d.fault && d.battery >= 35);
-  const order = s.orders.filter((o) => o.status === 'waiting').sort((a, b) => a.id - b.id)[0];
-  if (!free || !order) return false;
+  const free = s.drones.find(d => d.state === 'pad' && d.orderId == null && !d.fault && d.battery >= 35);
+  if (s.carrying?.kind === 'crate') {
+    if (!free) return false;
+    await goto(`pad:${free.idx}`);
+    if (!results.carryShot) {
+      results.carryShot = true;
+      await shot('03-carrying-cargo');
+    }
+    await press('e');
+    return true;
+  }
+  if (!s.box) {
+    if (!s.orders.some(o => o.status === 'waiting')) return false;
+    await ensureWalk();
+    await use('table');
+    const after = await snap();
+    if (after.phase === 'playing') assert.ok(after.box, 'Table did not start the waiting order');
+    return true;
+  }
+  if (s.box.checked && !free) return false;
   await ensureWalk();
-  await g((slot) => window.__game.goto(`shelf:${slot}`), order.slot);
-  await wait(80);
-  if (!results.baseShot) { results.baseShot = true; await shot('02-base-first-person'); results.fpsBase = await fps(); }
-  await press('e');
-  await g((i) => window.__game.goto(`pad:${i}`), free.idx);
-  await wait(80);
-  if (!results.carryShot) { results.carryShot = true; await shot('03-carrying-cargo'); }
-  await press('e');
+  const order = s.orders.find(o => o.id === s.box.orderId);
+  const missing = order.items.flatMap(line => {
+    const have = s.box.contents.filter(id => id === line.product).length;
+    return Array(Math.max(0, line.qty - have)).fill(line.product);
+  });
+  if (s.box.checked || !missing.length) {
+    await use('table');
+    const after = await snap();
+    if (after.phase !== 'playing') return true;
+    if (s.box.checked) assert.equal(after.carrying?.orderId, order.id, 'Seal did not produce a crate');
+    else assert.equal(after.box?.checked, true, 'Correct shipment failed the packing check');
+    return true;
+  }
+
+  const makeError = s.stage === 1 && order.id === 1 && !results.packErrors.length && missing.length === 1;
+  const product = makeError ? productIds.find(id => !order.items.some(line => line.product === id)) : missing[0];
+  await use(bayOf(product));
+  const picked = await snap();
+  if (picked.phase !== 'playing') return true;
+  assert.equal(picked.carrying?.product, product, 'Bay did not dispense the requested item');
+  await use('table');
+  if (makeError) {
+    await press('e');
+    await page.waitForFunction(() => window.__game.log.some(e => e.stage === 1 && e.kind === 'pack-error'));
+    const error = await g(() => window.__game.log.find(e => e.stage === 1 && e.kind === 'pack-error'));
+    const after = await snap();
+    assert.equal(after.box?.checked, false);
+    assert.deepEqual(after.box.contents, s.box.contents, 'Failed check should return only the extra item');
+    assert.deepEqual(after.box.missing, [{ product: missing[0], qty: 1 }]);
+    assert.equal(error.value, 20, 'One extra and one missing unit');
+    results.packErrors.push({ stage: s.stage, order: order.id, t: error.t, penalty: error.value });
+    await page.waitForFunction(() => document.querySelector('#feed')?.textContent.includes('포장 오류'));
+    await wait(100);
+    await shot('02d-pack-check-error');
+  } else if (!results.tableShot && s.box.contents.length + 1 >= Math.floor((s.box.contents.length + missing.length) / 2)) {
+    results.tableShot = true;
+    await wait(120);
+    await shot('02c-packing-table');
+  }
   return true;
 }
 
 async function launchReady(s) {
   const ready = s.drones.find((d) => d.state === 'pad' && d.orderId != null && !d.fault && d.battery >= 35);
   if (!ready) return false;
+  if (s.stage === 2 && ready.orderId === 1 && s.orders.length === 1) {
+    // Time the first departure so the next scheduled order can fly alongside it.
+    await page.waitForFunction(() => {
+      const sim = window.__game.sim;
+      return sim.orders.length > 1 || sim.nextOrderAt - sim.time <= 12;
+    }, null, { timeout: 90000 });
+  }
   if (!(await ensureConsole())) return false;
   await select(ready.idx);
   await press('Space');
@@ -176,8 +268,7 @@ async function serviceDrone(s) {
   const broken = s.drones.find((d) => d.state === 'pad' && d.fault === 'motor');
   if (broken) {
     await ensureWalk();
-    await g((i) => window.__game.goto(`pad:${i}`), broken.idx);
-    await wait(60);
+    await goto(`pad:${broken.idx}`);
     if (!results.motorShot) { results.motorShot = true; await page.keyboard.down('e'); await wait(800 / speedNow); await shot('07-event-rotor-repair'); await wait(1600 / speedNow); await page.keyboard.up('e'); }
     else await holdKey('e', 2300 / speedNow);
     const after = await snap();
@@ -188,24 +279,12 @@ async function serviceDrone(s) {
   const low = s.drones.find((d) => d.state === 'pad' && d.battery < 35);
   if (low) {
     await ensureWalk();
-    let cur = await snap();
-    if (cur.carrying?.kind === 'crate') {
-      // Hands full: put the crate back on a free shelf slot first.
-      const used = new Set(cur.orders.filter((o) => o.status === 'waiting').map((o) => o.slot));
-      const slot = [0, 1, 2, 3].find((i) => !used.has(i));
-      if (slot == null) return false;
-      await g((n) => window.__game.goto(`shelf:${n}`), slot);
-      await wait(60);
-      await press('e');
-    }
-    cur = await snap();
+    const cur = await snap();
     if (cur.carrying?.kind !== 'battery') {
-      await g(() => window.__game.goto('rack'));
-      await wait(60);
-      await press('e');
+      if (!(await freeHands(cur))) return false;
+      await use('rack');
     }
-    await g((i) => window.__game.goto(`pad:${i}`), low.idx);
-    await wait(60);
+    await goto(`pad:${low.idx}`);
     if (!results.swapShot) { results.swapShot = true; await shot('08-event-battery-swap'); }
     await press('e');
     const after = await snap();
@@ -226,6 +305,20 @@ async function playStage(stageId, { forcedEvents }) {
   await page.click('#b-go');
   speedNow = 1;
   await g(() => window.__game.setTimeScale(1));
+  if (!results.baseShot) {
+    results.baseShot = true;
+    await wait(250);
+    await shot('02-base-first-person');
+    results.fpsBase = await fps();
+    await goto('bay:5');
+    await page.keyboard.down('s');
+    try { await page.waitForFunction(() => window.__game.sim.player.x > -5.7); }
+    finally { await page.keyboard.up('s'); }
+    await page.keyboard.down('ArrowRight');
+    try { await page.waitForFunction(() => window.__game.sim.player.yaw < 0.92); }
+    finally { await page.keyboard.up('ArrowRight'); }
+    await shot('02b-shelf-bays');
+  }
   const start = Date.now();
   let triggered = false;
   let twoAirShot = false;
@@ -240,7 +333,7 @@ async function playStage(stageId, { forcedEvents }) {
       console.log('  triggered battery-low on drone 1 (on pad)');
       continue;
     }
-    if (stageId === 2 && forcedEvents && s.stats.trips.length === 2 && !results.motorForced && s.drones[1].state === 'pad') {
+    if (stageId === 2 && forcedEvents && s.stats.trips.length >= 2 && !results.motorForced && s.drones[1].state === 'pad') {
       results.motorForced = true;
       await g(() => window.__game.trigger('motor', 1));
       console.log('  triggered rotor fault on drone 2');
@@ -260,7 +353,15 @@ async function playStage(stageId, { forcedEvents }) {
   const end = await snap();
   const log = await g(() => window.__game.log.filter((e) => e.stage === window.__game.sim.stage.id));
   const trips = log.filter((e) => e.kind === 'touchdown').map((e) => e.value);
-  console.log(`  phase=${end.phase} score=${end.score}/${stageId === 1 ? 450 : 1000} gameTime=${end.time}s trips=${trips.map((t) => t.toFixed(1)).join(', ')}`);
+  const starts = new Map();
+  for (const event of log) {
+    if (event.kind === 'packing') starts.set(event.value, event.t);
+    if (event.kind === 'seal' && starts.has(event.value)) {
+      results.packTimes.push({ stage: stageId, order: event.value, seconds: +(event.t - starts.get(event.value)).toFixed(2) });
+      starts.delete(event.value);
+    }
+  }
+  console.log(`  phase=${end.phase} score=${end.score}/${end.targetScore} gameTime=${end.time}s trips=${trips.map((t) => t.toFixed(1)).join(', ')}`);
   results.trips.push(...trips.map((t) => ({ stage: stageId, t })));
   results.stages.push({ stage: stageId, phase: end.phase, score: end.score, time: end.time, stats: end.stats });
   await wait(300);
@@ -271,6 +372,7 @@ let exitCode = 0;
 try {
   await page.goto(url);
   await page.waitForFunction(() => !!window.__game);
+  productIds = await g(() => window.__game.products.map(p => p.id));
   await wait(800);
   await shot('01-title');
   if (only !== '2') await playStage(1, { forcedEvents: true });
@@ -280,7 +382,7 @@ try {
   await g(() => { window.__game.showBriefing(1); });
   await page.click('#b-go');
   await g(() => { const s = window.__game.sim; s.time = s.stage.timeLimit - 0.5; });
-  await wait(600);
+  await page.waitForFunction(() => window.__game.sim.phase === 'fail');
   const fail = await snap();
   console.log(`\nfail check: phase=${fail.phase}`);
   results.failCheck = fail.phase;
@@ -291,6 +393,13 @@ try {
   await wait(300);
   results.smallNotice = await page.isVisible('#small-screen');
   await shot('14-phone-notice');
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await g(() => { window.__game.setTimeScale(1); window.__game.showBriefing(1); });
+  await page.click('#b-go');
+  await press('Escape');
+  await page.waitForSelector('#b-resume');
+  await shot('15-quality-menu');
 } catch (e) {
   console.error('\nPLAYTEST ABORTED:', e);
   exitCode = 1;

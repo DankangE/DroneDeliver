@@ -1,5 +1,5 @@
-import { BASE, DESTINATIONS, FLIGHT, SCORE } from './config';
-import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, predictImpact, promptFor, stateLabel, type Sim, type SimEvent } from './sim';
+import { BASE, DESTINATIONS, FLIGHT, SCORE, productById } from './config';
+import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, orderText, packedQty, predictImpact, promptFor, stateLabel, type Sim, type SimEvent } from './sim';
 
 const DRONE_CSS = ['#ff8a3d', '#3dd6ff'];
 const $ = (id: string) => document.getElementById(id)!;
@@ -100,8 +100,8 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
     if (d.fault === 'gps' && d.state !== 'pad') sub = 'GPS 끊김 — 콘솔에서 F 길게';
     else if (d.fault === 'motor') sub = `로터 고장 — ${d.idx + 1}번 패드에서 E 길게`;
     else if (d.state === 'down') sub = `회수까지 ${Math.ceil(d.downTimer)}초`;
-    else if (o) sub = `→ ${o.dest.id} ${o.dest.name} · ${Math.round(Math.hypot(o.dest.x - d.pos.x, o.dest.z - d.pos.z))} m`;
-    else if (d.state === 'pad') sub = d.battery < FLIGHT.lowBattery ? '출발 전 배터리 교체' : '화물 대기 중';
+    else if (o) sub = `주문 #${o.id} → ${o.dest.id} ${o.dest.name} · ${Math.round(Math.hypot(o.dest.x - d.pos.x, o.dest.z - d.pos.z))} m`;
+    else if (d.state === 'pad') sub = d.battery < FLIGHT.lowBattery ? '출발 전 배터리 교체' : '봉인한 상자 연결 대기';
     else sub = `→ ${d.idx + 1}번 패드 · ${Math.round(Math.hypot(pad.x - d.pos.x, pad.z - d.pos.z))} m`;
     const classes = ['dcard', d.fault ? 'fault' : needsAttention(d) ? 'attn' : '', inConsole && s.selected === d.idx ? 'sel' : ''].join(' ');
     return `<div class="${classes}" style="--c:${DRONE_CSS[d.idx]}">
@@ -111,23 +111,42 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
       <div class="dsub">${sub}</div></div>`;
   }).join(''));
 
-  const active = s.orders.filter((o) => ['waiting', 'carried', 'loaded', 'flying'].includes(o.status));
-  html('orders', active.length === 0 ? '<div class="empty">진행 중인 주문 없음</div>' : active.map((o) => {
+  const active = s.orders.filter(o => ['waiting', 'packing', 'carried', 'loaded', 'flying'].includes(o.status));
+  html('orders', active.length === 0 ? '<div class="empty">진행 중인 주문 없음</div>' : active.map(o => {
     const left = o.deadline - s.time;
     const flying = o.status === 'flying';
-    const d = s.drones.find((dr) => dr.orderId === o.id);
-    const st = o.status === 'waiting' ? `선반 ${String.fromCharCode(65 + (o.slot ?? 0))}` : o.status === 'carried' ? '운반 중' : o.status === 'loaded' ? `${droneName(d?.idx ?? 0)} 적재` : '비행 중';
+    const d = s.drones.find(dr => dr.orderId === o.id);
+    const box = s.box?.orderId === o.id ? s.box : null;
+    let st = '포장 대기';
+    if (box) st = box.checked ? '확인 완료 · 봉인 대기' : '포장 중';
+    else if (o.status === 'carried') st = '봉인 완료 · 운반 중';
+    else if (d && !flying) st = `${droneName(d.idx)} 적재`;
+    else if (flying) st = '비행 중';
     const pct = flying ? 100 : Math.max(0, (left / s.stage.orderDeadline) * 100);
     const bonus = !flying && s.time - o.spawnedAt < s.stage.orderDeadline * 0.75 ? ' · 정시 보너스' : '';
+    const items = box ? o.items.map(line => {
+      const count = packedQty(box, line.product);
+      const state = count === line.qty ? 'order-filled' : count > line.qty ? 'order-excess' : '';
+      return `<span class="${state}">${productById(line.product).name} ${count}/${line.qty}</span>`;
+    }).join(' · ') : orderText(o);
+    const missing = box?.missing.map(line => `${productById(line.product).name} ×${line.qty}`).join(' · ');
     return `<div class="order" style="--c:${hex(o.dest.color)}">
-      <div class="code">${o.dest.id}</div><div class="name">${o.dest.name}</div>
+      <div class="code">${o.dest.id}</div><div class="name">#${o.id} ${o.dest.name}</div>
       <div class="tm ${!flying && left < 25 ? 'urgent' : ''}">${flying ? '✈' : fmtTime(left)}</div>
-      <div class="ost">${st}${bonus}<div class="tbar"><i style="width:${pct}%"></i></div></div></div>`;
+      <div class="ost">${st}${bonus}<div class="tbar"><i style="width:${pct}%"></i></div></div>
+      <div class="order-items">${items}</div>${missing ? `<div class="order-short">직전 확인에서 부족 · ${missing}</div>` : ''}</div>`;
   }).join(''));
 
   const carry = s.player.carrying;
-  const co = carry?.kind === 'crate' ? orderById(s, carry.orderId) : undefined;
-  text('carry', carry ? (carry.kind === 'battery' ? '운반 중 · 충전된 배터리' : `운반 중 · ${co?.dest.id} 상자 → ${co?.dest.name}`) : '');
+  let carried = '';
+  if (carry?.kind === 'item') {
+    const product = productById(carry.product);
+    carried = `${product.name} 1${product.unit}`;
+  } else if (carry?.kind === 'crate') {
+    const order = orderById(s, carry.orderId)!;
+    carried = `봉인한 상자 #${order.id} → ${order.dest.id} ${order.dest.name}`;
+  } else if (carry) carried = '충전된 배터리';
+  text('carry', carried ? `운반 중 · ${carried}` : '');
   text('objective-text', objective(s).text);
   html('keys', inConsole
     ? '<kbd>Space</kbd> 실행 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 조종<br><kbd>F</kbd> 길게: GPS 수리 · <kbd>1</kbd><kbd>2</kbd>/<kbd>Tab</kbd> 드론 · <kbd>Q</kbd> 나가기'

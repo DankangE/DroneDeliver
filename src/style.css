@@ -140,3 +140,8 @@ button:hover { filter: brightness(1.12); }
 @media (max-width: 899px), (pointer: coarse) and (hover: none) {
   #small-screen { display: flex; }
 }
+
+.order-items, .order-short { grid-column: 1 / -1; font-size: 12px; line-height: 1.4; }
+.order-items span { white-space: nowrap; }
+.order-filled { color: var(--good); }
+.order-short, .order-excess { color: var(--warn); }

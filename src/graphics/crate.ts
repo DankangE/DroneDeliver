@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { DESTINATIONS } from '../config';
-import { KO_FONT, box, brushedAluminium, canvasTex, cardboard, glossPlastic, seeded, solid, type Surfaces } from './materials';
+import { batchRigidParts } from './drone/parts';
+import { KO_FONT, canvasTex, cardboard, glossPlastic, seeded, solid } from './materials';
 
 const boardStock = new Map<boolean, THREE.MeshPhysicalMaterial>();
 const bands = new Map<string, THREE.Material>();
 let boardFace: THREE.Texture | undefined;
 let packingTape: THREE.MeshPhysicalMaterial | undefined;
 let lidSeam: THREE.Material | undefined;
-let nailHead: THREE.Material | undefined;
 
 function kraftBoard(pale: boolean) {
   let stock = boardStock.get(pale);
@@ -65,7 +65,8 @@ function routingBand(code: string, color: number) {
 
 function shippingLabel(code: string, color: number, serial: number) {
   const name = DESTINATIONS.find(d => d.id === code)?.name ?? code;
-  const map = canvasTex(768, 472, g => {
+  const map = canvasTex(512, 315, g => {
+    g.scale(512 / 768, 315 / 472);
     const random = seeded(serial);
     g.fillStyle = '#eeeae0'; g.fillRect(0, 0, 768, 472);
     g.fillStyle = '#e3e0d5'; g.fillRect(0, 0, 768, 56);
@@ -89,13 +90,11 @@ function shippingLabel(code: string, color: number, serial: number) {
   return new THREE.MeshStandardMaterial({ map, roughness: 0.84 });
 }
 
-// One destination has several reusable pack-outs. An order keeps its carton across shelf, hand and flight.
-export function crateModel(code: string, color: number, variant: number, s: Surfaces) {
+export function crateModel(code: string, color: number, variant: number) {
   const model = new THREE.Group();
   const serial = 105781 + 401 * code.charCodeAt(0) + variant * 107;
   const rnd = seeded(serial);
-  const plywood = (variant + code.charCodeAt(0)) % 4 === 0;
-  const mat = plywood ? s.wood : kraftBoard(variant !== 2);
+  const mat = kraftBoard(variant !== 2);
   const tape = packingTape ??= tapeMaterial();
   const band = routingBand(code, color);
   const paper = shippingLabel(code, color, serial);
@@ -115,15 +114,6 @@ export function crateModel(code: string, color: number, variant: number, s: Surf
     if (side % 2 === 0) decal(0.077, 0.14, tape, side === 0 ? tapeOffset : -tapeOffset, 0.267, 0.3309);
     decal(0.659, 0.069, band, 0, bandY, 0.3315);
     decal(0.49, 0.301, paper, (side % 2 ? 1 : -1) * 0.01, -0.012, 0.3323).rotation.z = decalAngle;
-    if (plywood) {
-      for (const y of [-0.307, 0.306]) {
-        box(face, 0.674, 0.047, 0.011, s.wood, 0, y, 0.333);
-        for (const x of [-0.28, 0.28]) {
-          const head = solid(face, new THREE.CircleGeometry(0.0048, 8), nailHead ??= brushedAluminium(0x85857d), x, y, 0.3388);
-          head.castShadow = false;
-        }
-      }
-    }
   }
   const lid = (w: number, d: number, material: THREE.Material, x: number, y: number, z: number) => {
     const mesh = solid(model, new THREE.PlaneGeometry(w, d), material, x, y, z);
@@ -137,5 +127,7 @@ export function crateModel(code: string, color: number, variant: number, s: Surf
   // The overhead slip also reads over the lip of a carried carton.
   const topLabel = lid(0.292, 0.18, paper, -0.145, 0.3427, 0.065);
   topLabel.rotateZ(decalAngle - 0.075);
+  batchRigidParts(model);
+  for (const mesh of model.children) mesh.castShadow = false;
   return model;
 }

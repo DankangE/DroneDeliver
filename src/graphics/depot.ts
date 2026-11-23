@@ -375,72 +375,35 @@ function pallet(group: THREE.Group, x: number, y: number, z: number, wood: THREE
   for (let j = 0; j < 6; j++) box(group, 1.04, 0.026, 0.14, wood, x, y + 0.125, z - 0.49 + j * 0.196);
 }
 
-function cargoShelves(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, m: Finishes) {
-  const x = BASE.shelfSlots[0].x - 0.1, front = x + 0.75, rear = x - 0.68;
-  const uprights = [-6.14, -3.75, -1.25, 1.25, 3.74];
-  const perforated = printed(canvasTex(64, 1024, g => {
-    g.fillStyle = '#28577c'; g.fillRect(0, 0, 64, 1024);
-    for (let j = 0; j < 32; j++) for (const px of [16, 47]) {
-      const y = 14 + j * 32;
-      g.fillStyle = '#8093a0'; g.fillRect(px - 4, y + 1, 8, 10);
-      g.fillStyle = '#192e3b'; g.fillRect(px - 4, y, 8, 8); g.fillRect(px - 2, y + 7, 4, 3);
+function cargoShelves(group: THREE.Group, marks: THREE.Scene, s: Surfaces, m: Finishes) {
+  const bays = BASE.itemBays;
+  const x = bays[0].x, front = x + 0.72, rear = x - 0.65;
+  const width = bays[1].z - bays[0].z;
+  const length = width * bays.length;
+  const mid = (bays[0].z + bays[bays.length - 1].z) / 2;
+  for (let i = 0; i <= bays.length; i++) {
+    const z = bays[0].z + (i - 0.5) * width;
+    for (const px of [front, rear]) {
+      box(group, 0.09, 2.38, 0.09, m.blue, px, 1.21, z);
+      box(group, 0.17, 0.045, 0.17, m.zinc, px, 0.05, z);
     }
-    g.fillStyle = '#56809b'; g.fillRect(1, 0, 2, 1024);
-  }));
-  for (const z of uprights) {
-    for (const postX of [front, rear]) {
-      box(group, 0.103, 2.58, 0.127, m.blue, postX, 1.31, z);
-      box(group, 0.186, 0.035, 0.205, m.zinc, postX, 0.046, z);
-      plate(group, 0.125, 2.55, perforated, postX + 0.053, 1.31, z, Math.PI / 2);
-      for (const y of [0.58, 1.83]) {
-        box(group, 0.113, 0.234, 0.165, m.orange, postX, y, z);
-        for (const dy of [-0.063, 0.063]) {
-          const pin = solid(group, new THREE.CylinderGeometry(0.013, 0.013, 0.01, 6), m.zinc, postX + 0.06, y + dy, z);
-          pin.rotation.z = Math.PI / 2;
-        }
-      }
-    }
-    for (const [a, b, y] of [[front, rear, 0.16], [rear, front, 0.94], [front, rear, 1.72]]) {
-      rail(group, [a, y, z], [b, y + 0.78, z], 0.047, 0.04, m.zinc);
-    }
-    box(group, 1.45, 0.065, 0.05, m.blue, x + 0.035, 2.52, z);
+    rail(group, [rear, 0.18, z], [front, 1.36, z], 0.04, 0.04, m.zinc);
+    box(group, 1.46, 0.07, 0.07, m.blue, x + 0.035, 2.33, z);
   }
-  for (const [i, slot] of BASE.shelfSlots.entries()) {
-    const z0 = uprights[i], z1 = uprights[i + 1], span = z1 - z0, mid = (z0 + z1) / 2;
-    for (const top of [0.66, 1.94]) {
-      for (const px of [front, rear]) box(group, 0.083, 0.145, span - 0.09, m.orange, px, top - 0.091, mid);
-      for (const dz of [-0.83, 0, 0.83]) box(group, 1.43, 0.051, 0.065, m.zinc, x + 0.03, top - 0.073, mid + dz);
-      for (let board = 0; board < 3; board++) {
-        box(group, 1.51, 0.042, (span - 0.12) / 3 - 0.009, s.wood, x, top - 0.021,
-          z0 + 0.06 + (board + 0.5) * (span - 0.12) / 3);
-      }
-    }
-    const load = printed(canvasTex(512, 128, g => {
-      g.fillStyle = '#e9e5d7'; g.fillRect(0, 0, 512, 128);
-      g.fillStyle = '#26373a'; g.fillRect(0, 0, 128, 128);
-      g.fillStyle = '#eeeade'; g.font = `bold 58px ${KO_FONT}`; g.fillText('0' + (i + 1), 23, 86);
-      g.fillStyle = '#293532'; g.font = `bold 34px ${KO_FONT}`; g.fillText('출고 · 화물 선반', 149, 52);
-      g.font = `26px ${KO_FONT}`; g.fillText('칸당 허용 하중   80 kg', 150, 96);
-    }));
-    plate(group, 0.43, 0.108, load, front + 0.043, 0.57, slot.z, Math.PI / 2);
-    box(group, 0.09, 0.038, span - 0.31, m.zinc, front - 0.09, 1.886, mid);
-    box(group, 0.061, 0.011, span - 0.35, m.lens, front - 0.09, 1.86, mid);
-    if (i % 2 === 0) {
-      const taskLight = new THREE.PointLight(0xffefdb, 3.1, 4, 2);
-      taskLight.position.set(front - 0.09, 1.83, mid); scene.add(taskLight);
+  const liner = cardboard(0xba9869);
+  for (const y of BASE.shelfLevels) {
+    for (const px of [front, rear]) box(group, 0.09, 0.115, length, m.orange, px, y - 0.08, mid);
+    box(group, 1.36, 0.045, length, s.wood, x, y - 0.0225, mid);
+    for (const bay of bays) {
+      box(group, 1.22, 0.007, width - 0.15, liner, x, y + 0.003, bay.z).castShadow = false;
     }
   }
-  // Empty pallets and flattened returns stay distinct from dispatchable cargo.
-  for (const [pz, layers] of [[-4.95, 2], [0.12, 3], [2.66, 1]]) {
-    for (let i = 0; i < layers; i++) pallet(group, x, 0.035 + i * 0.138, pz, s.wood);
-  }
-  const board = cardboard(0xb08a5d);
-  for (let i = 0; i < 9; i++) {
-    const flat = box(group, 0.77 + 0.08 * Math.sin(i), 0.021, 1.05, board, x + 0.02 * Math.cos(i), 1.951 + 0.021 * i, 2.48);
-    flat.rotation.y = Math.sin(i * 3) * 0.032;
-  }
-  for (const dz of [-0.32, 0.32]) box(group, 0.86, 0.004, 0.022, m.ivory, x, 2.131, 2.48 + dz);
-  sign(marks, 3, 0.75, '화물', '출고 대기 주문', 0x4fc3f7, -11.75, 3.3, -1.2, Math.PI / 2);
+  box(group, 0.09, 0.33, length, m.blue, front, 2.17, mid);
+  const storage = new THREE.Group();
+  for (const bay of [bays[1], bays[4]]) pallet(storage, x, 0.035, bay.z, s.wood);
+  storage.traverse(child => { child.castShadow = false; });
+  group.add(storage);
+  sign(marks, 3.15, 0.76, '상품 선반', '주문 상품 낱개 출고', 0xe8ac5e, -11.75, 3.27, mid, Math.PI / 2);
 }
 
 function chargingStation(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, m: Finishes) {
@@ -679,7 +642,7 @@ export function buildDepot(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) 
   for (const y of [0.54, 1.1]) box(structure, B.maxX - B.minX + 1, 0.06, 0.06, m.zinc, 0, y, B.maxZ + 0.5);
   installSection(scene, structure);
   const shelving = new THREE.Group(); shelving.name = '출고 선반';
-  cargoShelves(shelving, scene, marks, s, m);
+  cargoShelves(shelving, marks, s, m);
   installSection(scene, shelving);
   const workstations = new THREE.Group(); workstations.name = '충전 · 관제';
   chargingStation(workstations, scene, marks, s, m);
