@@ -66,6 +66,7 @@ export class AdaptiveQuality {
   private windowTime = 0;
   private frames = 0;
   private meanMs = 1000 / 60;
+  private upHold = 0;
 
   constructor(public setting: QualitySetting) {
     this.tier = initialTier(setting);
@@ -81,14 +82,14 @@ export class AdaptiveQuality {
     this.scale = 1;
     this.warmup = 3000;
     this.previousTime = undefined;
-    this.scaleTime = this.windowTime = this.frames = 0;
+    this.scaleTime = this.windowTime = this.frames = this.upHold = 0;
     this.meanMs = 1000 / 60;
   }
 
   sample(now: number) {
     const dt = now - (this.previousTime ?? now);
     this.previousTime = now;
-    if (dt <= 0 || dt > 250) return;
+    if (dt <= 0 || dt > 1000) return;
     if (this.warmup > 0) {
       this.warmup -= dt;
       return;
@@ -107,9 +108,11 @@ export class AdaptiveQuality {
 
     this.meanMs += (dt - this.meanMs) * (1 - Math.exp(-dt / 500));
     this.scaleTime += dt;
+    this.upHold = Math.max(0, this.upHold - dt);
     if (this.scaleTime < 1000) return;
     this.scaleTime = 0;
-    const step = this.meanMs > 17.5 ? -0.1 : this.meanMs < 15.5 ? 0.1 : 0;
+    const step = this.meanMs > 18.5 ? -0.1 : this.meanMs < 17.2 && this.upHold === 0 ? 0.1 : 0;
+    if (step < 0) this.upHold = 8000;
     this.scale = Math.max(TIERS[this.tier].minScale, Math.min(1, Math.round((this.scale + step) * 10) / 10));
   }
 }
