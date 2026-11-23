@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { BASE, FLIGHT } from './config';
 import { needsAttention, objective, predictImpact, type Drone, type Sim } from './sim';
-import { buildDepot, buildDestinations } from './graphics/depot';
+import { buildDepot } from './graphics/depot';
+import { buildDestinations } from './graphics/destinations';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
 import { KO_FONT, box, canvasTex, finish, ink, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
