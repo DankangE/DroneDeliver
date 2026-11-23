@@ -1,7 +1,12 @@
 import { BASE, DESTINATIONS, FLIGHT, SCORE } from './config';
-import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, predictImpact, promptFor, stateLabel, type Sim, type SimEvent } from './sim';
+import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, predictImpact, promptFor, stateLabel, type Drone, type LoopStep, type Sim, type SimEvent } from './sim';
 
 const DRONE_CSS = ['#ff8a3d', '#3dd6ff'];
+const DELIVERY_STEPS = [
+  ['order', '주문'], ['pick', '물건 담기'], ['check', '포장 확인'], ['seal', '봉인'], ['attach', '드론 연결'],
+  ['launch', '출발'], ['fly', '비행'], ['drop', '투하'], ['land', '착륙'],
+] as const satisfies ReadonlyArray<readonly [LoopStep, string]>;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -17,10 +22,24 @@ function text(id: string, s: string) {
   cache.set(id, s);
   $(id).textContent = s;
 }
+function keyedText(id: string, label: string) {
+  if (cache.get(id) === label) return;
+  const prefix = /^\[(E|Space|F)( 길게)?\]\s*/.exec(label);
+  if (!prefix) {
+    text(id, label);
+    return;
+  }
+  const key = document.createElement('kbd');
+  key.textContent = prefix[1];
+  $(id).replaceChildren(key, (prefix[2] ?? '') + ' ' + label.slice(prefix[0].length));
+  cache.set(id, label);
+}
 function cls(id: string, name: string, on: boolean) { $(id).classList.toggle(name, on); }
 
 let slowTimer = 0;
 let bannerTimer = 0;
+let lastStep: LoopStep | undefined;
+let lastExitHint: 'exit' | 'autopilot' | null = null;
 
 export function resetHud() {
   cache.clear();
@@ -28,6 +47,42 @@ export function resetHud() {
   $('popups').innerHTML = '';
   $('banner').className = '';
   slowTimer = 0;
+  lastStep = undefined;
+}
+
+function hasConsoleWork(d: Drone) {
+  if (d.state === 'pad') return d.orderId != null && !d.fault && d.battery >= FLIGHT.lowBattery;
+  return d.state !== 'down';
+}
+
+function updateExitHint(s: Sim) {
+  let hint: typeof lastExitHint = null;
+  if (s.player.mode === 'console' && !hasConsoleWork(s.drones[s.selected]) && !s.drones.some(needsAttention)) {
+    hint = s.drones.some(hasConsoleWork) ? 'autopilot' : 'exit';
+  }
+  if (hint === lastExitHint) return;
+  lastExitHint = hint;
+  cls('exit-prompt', 'hidden', hint !== 'exit');
+  cls('exit-hint', 'hidden', hint !== 'autopilot');
+  slowTimer = 0;
+}
+
+function updateObjective(s: Sim) {
+  const next = objective(s);
+  text('objective-text', next.text);
+  if (lastExitHint === 'exit') text('exit-next', next.text);
+  if (next.step === lastStep) return;
+  const active = DELIVERY_STEPS.findIndex(([step]) => step === next.step);
+  const steps = DELIVERY_STEPS.map(([, label], i) => {
+    const state = i === active ? ' aria-current="step"' : i < active ? ' class="done"' : '';
+    return `<li${state}><span>${label}</span></li>`;
+  });
+  if (next.step === 'service') steps.push('<li class="service" aria-current="step"><span>정비</span></li>');
+  html('steps', steps.join(''));
+  if (lastStep && !reducedMotion.matches) {
+    $('objective').animate([{ boxShadow: '0 0 16px #ffd23f88' }, { boxShadow: '0 0 0 transparent' }], 550);
+  }
+  lastStep = next.step;
 }
 
 export function handleEvent(e: SimEvent) {
@@ -62,14 +117,14 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
   document.body.classList.toggle('console', inConsole);
   cls('console-ui', 'hidden', !inConsole);
   cls('crosshair', 'hidden', inConsole);
-  cls('objective', 'hidden', inConsole && s.stage.id > 1);
+  updateExitHint(s);
 
   // per-frame: interaction prompt + hold progress
   const pr = inConsole ? null : promptFor(s, s.target);
   cls('prompt', 'none', !pr);
   cls('prompt', 'off', !!pr && !pr.enabled);
   cls('crosshair', 'on', !!pr && pr.enabled);
-  text('prompt-text', pr?.text ?? '');
+  keyedText('prompt-text', pr?.text ?? '');
   cls('hold-ring', 'hidden', !pr?.hold);
   ($('hold-fill') as HTMLElement).style.width = `${Math.min(100, (s.player.holdProgress / FLIGHT.repairTime) * 100)}%`;
   if (inConsole) updateConsole(s);
@@ -128,7 +183,7 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
   const carry = s.player.carrying;
   const co = carry?.kind === 'crate' ? orderById(s, carry.orderId) : undefined;
   text('carry', carry ? (carry.kind === 'battery' ? '운반 중 · 충전된 배터리' : `운반 중 · ${co?.dest.id} 상자 → ${co?.dest.name}`) : '');
-  text('objective-text', objective(s).text);
+  updateObjective(s);
   html('keys', inConsole
     ? '<kbd>Space</kbd> 실행 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 조종<br><kbd>F</kbd> 길게: GPS 수리 · <kbd>1</kbd><kbd>2</kbd>/<kbd>Tab</kbd> 드론 · <kbd>Q</kbd> 나가기'
     : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · 마우스 / <kbd>←</kbd><kbd>→</kbd> 시점<br><kbd>E</kbd> 상호작용 · <kbd>P</kbd> 일시 정지 · <kbd>M</kbd> 음소거');
@@ -145,7 +200,7 @@ function updateConsole(s: Sim) {
   text('feed-title', `${droneName(d.idx)} · ${stateLabel(d)} · ${dest ? `${dest.id} ${dest.name}` : `${d.idx + 1}번 패드`} ${Math.round(dist)} m · 고도 ${d.pos.y.toFixed(0)} m · 배터리 ${Math.round(d.battery)}%`);
   html('drone-tabs', s.drones.map((dr) => `<span class="tab ${dr.idx === s.selected ? 'sel' : ''} ${needsAttention(dr) ? 'attn' : ''}" style="--c:${DRONE_CSS[dr.idx]}">${dr.idx + 1} · ${stateLabel(dr)}</span>`).join(''));
   const a = consoleAction(s);
-  text('action-label', a.label);
+  keyedText('action-label', a.label);
   cls('action-label', 'off', !a.enabled && !(d.fault === 'gps'));
   text('action-reason', a.reason ?? '');
   const gps = d.fault === 'gps' && d.state !== 'pad';

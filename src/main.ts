@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { BASE, STAGES } from './config';
 import { initAudio, play, setHum, toggleMute } from './audio';
 import { handleEvent, resetHud, updateHud } from './hud';
+import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
 import { consolePrimary, createSim, interact, leaveConsole, needsAttention, orderById, predictImpact, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
 import { World } from './world';
 
@@ -37,22 +38,51 @@ function bind(id: string, fn: () => void) { document.getElementById(id)?.addEven
 const CONTROLS = `<div class="ctrl">
   <kbd>W A S D</kbd><span>기지 안 이동 · 콘솔에서는 드론 조종</span>
   <kbd>마우스</kbd><span>둘러보기 (화면을 클릭하면 마우스 고정, ← →로도 회전)</span>
-  <kbd>E</kbd><span>들기 · 연결 · 배터리 교체 · 길게 눌러 수리 · 콘솔 앉기</span>
-  <kbd>Space</kbd><span>콘솔: 출발 · 택배 투하 · 착륙 시작</span>
-  <kbd>F</kbd><span>콘솔: 길게 눌러 GPS 재보정</span>
-  <kbd>1 2 Tab</kbd><span>콘솔: 드론 화면 전환</span>
-  <kbd>Q</kbd><span>콘솔에서 일어나기</span>
-  <kbd>P / M</kbd><span>일시 정지 · 음소거</span>
+  <kbd>E</kbd><span>물건 담기 · 포장 확인 · 봉인 · 드론 연결 · 콘솔 앉기<br>배터리 교체 · 길게 눌러 로터 수리</span>
+  <kbd>Space</kbd><span>콘솔에서 출발 · 택배 투하 · 착륙 시작</span>
+  <kbd>F</kbd><span>콘솔에서 길게 눌러 GPS 재보정</span>
+  <kbd>1 2 Tab</kbd><span>드론 화면 전환</span>
+  <kbd>Q</kbd><span>착륙 후 콘솔에서 나가기</span>
+  <kbd>Esc / P</kbd><span>일시 정지</span>
+  <kbd>M</kbd><span>음소거</span>
 </div>`;
+
+const qualityMenu = document.createElement('fieldset');
+qualityMenu.className = 'quality-menu';
+qualityMenu.innerHTML = `<legend>그래픽 품질</legend>
+  <div class="quality-row"><div class="quality-options">${QUALITY_SETTINGS.map(setting =>
+    `<label><input type="radio" name="quality" value="${setting}"><span>${QUALITY_LABEL[setting]}</span></label>`
+  ).join('')}</div><span class="quality-applied" role="status"></span></div>
+  <p>끊기면 낮음을 고르세요. 자동은 측정한 FPS로 고릅니다.</p>`;
+for (const setting of QUALITY_SETTINGS) {
+  const radio = qualityMenu.querySelector<HTMLInputElement>(`input[value="${setting}"]`)!;
+  radio.addEventListener('change', () => {
+    world.setQuality(setting);
+    syncQualityMenu();
+  });
+}
+let displayedQuality: World['quality'] | undefined;
+function syncQualityMenu() {
+  const { setting, tier } = world.quality;
+  if (displayedQuality?.setting === setting && displayedQuality.tier === tier) return;
+  displayedQuality = { setting, tier };
+  qualityMenu.querySelector<HTMLInputElement>(`input[value="${setting}"]`)!.checked = true;
+  qualityMenu.querySelector('.quality-applied')!.textContent = `현재 적용: ${QUALITY_LABEL[tier]}${setting === 'auto' ? ' (자동)' : ''}`;
+}
+function mountQualityMenu() {
+  card.append(qualityMenu);
+  syncQualityMenu();
+}
 
 function showTitle() {
   onTitle = true;
   hudEl.classList.add('hidden');
   showCard(`<div class="logo">하늘길 택배</div>
     <h1>드론 배송 관제사</h1>
-    <p>드론 택배 기지를 운영합니다. 주문이 들어오면 상자를 패드로 옮겨 드론에 연결하고, 관제 콘솔에서 비행을 맡으세요. 출발, 목표 링에 투하, 귀환, 착륙까지.</p>
+    <p>주문한 물건을 선반에서 찾아 상자에 담으세요. 포장을 확인하고 봉인한 상자를 드론에 연결하면 출발 준비가 끝납니다. 콘솔에서 배송을 마치고 다음 주문을 준비하세요.</p>
     ${CONTROLS}
     <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button></div>`);
+  mountQualityMenu();
   bind('b-start', () => showBriefing(1));
   bind('b-s2', () => showBriefing(2));
 }
@@ -123,6 +153,7 @@ function setPaused(p: boolean) {
   if (p) {
     if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
+    mountQualityMenu();
     bind('b-resume', () => { setPaused(false); lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
     bind('b-title', () => { paused = false; showTitle(); });
@@ -149,13 +180,19 @@ document.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-  if (e.repeat) return;
-  keys.add(e.code);
-  if (onTitle || screen.classList.contains('hidden') === false && !paused) {
-    if (e.code === 'Enter') (card.querySelector('button.primary') as HTMLButtonElement | null)?.click();
+  const menuOpen = !screen.classList.contains('hidden');
+  if (menuOpen && e.code === 'Enter') {
+    const primary = card.querySelector<HTMLButtonElement>('button.primary');
+    if (primary) {
+      e.preventDefault();
+      if (!e.repeat) primary.click();
+    }
     return;
   }
+  if (!menuOpen && ['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  keys.add(e.code);
+  if (menuOpen && !paused) return;
   if (e.code === 'Escape') { setPaused(true); return; }
   if (e.code === 'KeyP') { setPaused(!paused); if (!paused) lockPointer(); return; }
   if (e.code === 'KeyM') { toggleMute(); return; }
@@ -217,6 +254,7 @@ function frame(now: number) {
   const near = sim.player.mode === 'console' ? (flying.includes(sim.drones[sim.selected]) ? 1 : 0.2) : flying.reduce((a, d) => a + Math.max(0, 1 - Math.hypot(d.pos.x - sim.player.x, d.pos.y - 1.6, d.pos.z - sim.player.z) / 40), 0);
   setHum(!paused && sim.phase === 'playing' && !onTitle ? near : 0, sim.drones[sim.selected]?.state === 'takeoff' ? 1 : 0.4);
   world.update(sim, realDt);
+  if (onTitle || paused) syncQualityMenu();
   if (!onTitle) updateHud(sim, realDt * timeScale, realDt);
   world.render();
   requestAnimationFrame(frame);

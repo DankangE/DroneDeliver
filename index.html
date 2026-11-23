@@ -13,12 +13,37 @@
 <canvas id="view"></canvas>
 
 <div id="hud" class="hidden">
-  <div id="drones" class="panel-col"></div>
-  <div id="topbar">
-    <div class="stage-name" id="stage-name"></div>
-    <div class="score-row"><span id="score">0</span><span class="slash">/</span><span id="target">0</span><span class="unit">점</span></div>
-    <div class="bar"><div id="score-fill"></div></div>
-    <div class="meta-row"><span id="clock">0:00</span><span id="combo"></span><span id="wind"></span></div>
+  <div id="console-ui" class="hidden">
+    <div id="feed-frame"></div>
+    <div id="console-controls">
+      <div id="exit-prompt" class="hidden">
+        <kbd aria-hidden="true">Q</kbd>
+        <div><strong>Q를 눌러 콘솔에서 나가기</strong><div id="exit-next"></div></div>
+      </div>
+      <div id="exit-hint" class="hidden"><kbd>Q</kbd> 나가서 다음 주문 준비 · 비행은 자동입니다</div>
+      <div id="guide"></div>
+      <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
+    </div>
+  </div>
+  <div id="left" class="panel-col">
+    <div id="drones"></div>
+    <div class="panel console-telemetry">
+      <div id="feed-head"><span class="rec">● 실시간</span><span id="feed-title"></span></div>
+      <div id="drone-tabs"></div>
+    </div>
+  </div>
+  <div id="hud-heading">
+    <div id="topbar">
+      <div class="stage-name" id="stage-name"></div>
+      <div class="score-row"><span id="score">0</span><span class="slash">/</span><span id="target">0</span><span class="unit">점</span></div>
+      <div class="bar"><div id="score-fill"></div></div>
+      <div class="meta-row"><span id="clock">0:00</span><span id="combo"></span><span id="wind"></span></div>
+    </div>
+    <div id="objective">
+      <ol id="steps" aria-label="배송 단계"></ol>
+      <div class="objective-line"><span class="tag">다음</span><span id="objective-text" role="status"></span></div>
+    </div>
+    <div id="banner"></div>
   </div>
   <div id="right" class="panel-col">
     <div class="panel">
@@ -26,23 +51,15 @@
       <div id="orders"></div>
     </div>
     <div id="feed"></div>
+    <div id="instruments">
+      <canvas id="minimap" width="240" height="240" aria-label="드론 위치 지도"></canvas>
+      <div id="keys"></div>
+    </div>
   </div>
   <div id="crosshair"></div>
   <div id="prompt"><span id="prompt-text"></span><div id="hold-ring"><div id="hold-fill"></div></div></div>
-  <div id="objective"><span class="tag">다음</span><span id="objective-text"></span></div>
   <div id="carry"></div>
-  <div id="keys"></div>
-  <div id="banner"></div>
   <div id="popups"></div>
-
-  <div id="console-ui" class="hidden">
-    <div id="feed-frame"></div>
-    <div id="feed-head"><span class="rec">● 실시간</span><span id="feed-title"></span></div>
-    <div id="drone-tabs"></div>
-    <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
-    <div id="guide"></div>
-    <canvas id="minimap" width="240" height="240"></canvas>
-  </div>
 </div>
 
 <div id="screen" class="screen">
