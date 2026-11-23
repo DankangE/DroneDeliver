@@ -22,10 +22,19 @@ export function daylight(
   horizon.minFilter = horizon.magFilter = THREE.LinearFilter;
   horizon.needsUpdate = true;
   scene.background = horizonColor;
+  // r170 keys CubeUV programs by atlas height. A constant one-texel-wide
+  // column gives a valid black lookup at every UV, with the final 2K atlas
+  // height, so the HDR upload only changes a uniform on the first lit frame.
+  const atlasHeight = 2048;
+  const initialEnvironment = new THREE.DataTexture(new Uint8Array(atlasHeight * 4), 1, atlasHeight);
+  initialEnvironment.mapping = THREE.CubeUVReflectionMapping;
+  initialEnvironment.needsUpdate = true;
+  scene.environment = initialEnvironment;
   scene.environmentRotation.y = yaw;
   const fill = new THREE.HemisphereLight(0xdbeaff, 0xa59a7b, 1.1);
   scene.add(fill);
 
+  const pmrem = new THREE.PMREMGenerator(renderer);
   new RGBELoader().setDataType(THREE.HalfFloatType).load('/assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr', sky => {
     const { width, height, data } = sky.image;
     const pixels = new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2);
@@ -81,7 +90,8 @@ export function daylight(
     // This pure-sky capture has mirrored clouds underfoot. For IBL, give the
     // downward hemisphere diffuse ground radiance with a gradual horizon transition.
     const ground = new THREE.Color().setRGB(0.17, 0.145, 0.10);
-    for (let y = Math.floor(height / 2); y < height; y++) {
+    const groundStart = Math.ceil(height * (0.5 + 18 / 180));
+    for (let y = Math.floor(height / 2); y < groundStart; y++) {
       const t = THREE.MathUtils.smoothstep((y / height - 0.5) * 180, 0, 18);
       for (let x = 0; x < width; x++) {
         const i = 4 * (y * width + x);
@@ -90,13 +100,19 @@ export function daylight(
         pixels[i + 2] = toHalfFloat(THREE.MathUtils.lerp(fromHalfFloat(pixels[i + 2]), ground.b, t));
       }
     }
+    // Below the blend band all rows have identical ground radiance.
+    const stride = width * 4, start = groundStart * stride;
+    const groundPixel = [toHalfFloat(ground.r), toHalfFloat(ground.g), toHalfFloat(ground.b), toHalfFloat(1)];
+    for (let i = start; i < start + stride; i += 4) pixels.set(groundPixel, i);
+    for (let i = start + stride; i < pixels.length; i += stride) pixels.copyWithin(i, start, start + stride);
     sky.mapping = THREE.EquirectangularReflectionMapping;
     sky.wrapS = THREE.RepeatWrapping;
-    const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromEquirectangular(sky).texture;
+    initialEnvironment.dispose();
     scene.add(skyBackground(camera, sky, horizon, yaw));
     fill.intensity = 0;
     pmrem.dispose();
-  }, undefined, () => { /* Keep the initial daylight and horizon if the asset is unavailable. */ });
+  }, undefined, () => pmrem.dispose());
+  pmrem.compileEquirectangularShader();
   return horizon;
 }

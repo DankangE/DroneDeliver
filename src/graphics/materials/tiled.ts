@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { grainMaps, withAoUv } from './textures';
 
 type Profile = 'grass' | 'asphalt' | 'floor' | 'wood' | 'plate' | 'wall' | 'iron'
-  | 'paintedSteel' | 'weatheredPaint' | 'carbon' | 'brushed' | 'diffuser' | 'grain';
+  | 'paintedSteel' | 'weatheredPaint';
 
 // Translate samples on a triangular lattice. All channels use the same translations and
 // weights, so tangent normals need no rotation. Explicit gradients keep mip selection
@@ -50,8 +50,6 @@ const offsetRules: Partial<Record<Profile, string>> = {
   iron: 'shift.x = 0.0;', // Slip along the flutes.
   plate: 'shift = floor(shift * vec2(13, 11)) / vec2(13, 11);', // Registered tread diamonds.
   wall: 'shift = floor(shift * 2.0) * 0.5;', // Two formed panels per scan axis.
-  carbon: 'shift = floor(shift * 2.0) * 0.5;', // Four-tow twill repeat.
-  diffuser: 'shift = floor(shift * 8.0) * 0.125;',
 };
 
 const grassTint = /* glsl */`
@@ -99,7 +97,7 @@ export class TiledMaterial extends THREE.MeshPhysicalMaterial {
   // Raw primitives carry ordinary 0..1 UVs. Metric helper geometry supplies its face UVs.
   readonly defaultAttributeValues = { finishFaceUv: [-1, -1] };
 
-  constructor(public profile: Profile = 'grain', options?: THREE.MeshPhysicalMaterialParameters) {
+  constructor(public profile: Profile = 'floor', options?: THREE.MeshPhysicalMaterialParameters) {
     super(options);
   }
 
@@ -114,7 +112,7 @@ export class TiledMaterial extends THREE.MeshPhysicalMaterial {
   }
 
   override customProgramCacheKey() {
-    return 'finish/' + this.profile + '/' + (this.roughnessMap === this.metalnessMap);
+    return 'finish/' + this.profile + '/' + (this.roughnessMap === this.metalnessMap) + '/' + (this.roughnessMap === this.map);
   }
 
   override onBeforeCompile(shader: THREE.WebGLProgramParametersWithUniforms, _renderer: THREE.WebGLRenderer) {
@@ -134,7 +132,8 @@ export class TiledMaterial extends THREE.MeshPhysicalMaterial {
         ${paint ? 'vFinishFace = finishFaceUv.x >= 0.0 ? finishFaceUv : uv;' : ''}`);
 
     if (profile === 'grass') shader.uniforms.tuftNormal = { value: grainMaps('grass').normalMap };
-    const normalChunk = sampleChunk(chunks.normal_fragment_maps, 'normalMap', 'vNormalMapUv')
+    const microGrain = paint || plaster;
+    const normalChunk = (microGrain ? chunks.normal_fragment_maps : sampleChunk(chunks.normal_fragment_maps, 'normalMap', 'vNormalMapUv'))
       .replace('mapN.xy *= normalScale;', `mapN.xy *= normalScale;
         ${profile === 'grass' ? `
           // The 9.6 m scan and 24 cm tuft detail share a tangent frame.
@@ -166,12 +165,12 @@ export class TiledMaterial extends THREE.MeshPhysicalMaterial {
             + 0.24 * finishNoise(finishPlane * 14.0) + 0.30 * flecks);` : ''}
         ${profile === 'grass' ? 'float vegetation = 0.0;' : ''}
         #ifdef USE_ROUGHNESSMAP
-          vec4 finishArm = finishSample(roughnessMap, vRoughnessMapUv, tile);
+          vec4 finishArm = ${microGrain ? 'texture2D(roughnessMap, vRoughnessMapUv)' : 'finishSample(roughnessMap, vRoughnessMapUv, tile)'};
         #else
           vec4 finishArm = vec4(1, 1, 0, 1);
         #endif
         #ifdef USE_MAP
-          vec4 sampleColor = finishSample(map, vMapUv, tile);
+          vec4 sampleColor = ${this.roughnessMap === this.map ? 'finishArm' : 'finishSample(map, vMapUv, tile)'};
           vec3 albedo = sampleColor.rgb;
           ${grades[profile] ?? ''}
           diffuseColor.rgb ${paint || plaster ? '=' : '*='} albedo;

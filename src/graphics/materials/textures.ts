@@ -129,14 +129,29 @@ export function grainMaps(kind: Grain) {
   return maps;
 }
 
-/** mergeGeometries() needs identical attribute sets: give every piece uv1 when all have uv, otherwise drop uv1. */
+/** Keep metric/normalized UVs compatible when baking mixed primitives. */
 export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const allUv = pieces.every((g) => g.hasAttribute('uv'));
+  const allUv = pieces.every(g => g.hasAttribute('uv'));
+  const faceUvs = pieces.some(g => g.hasAttribute('finishFaceUv'));
+  const indexed = pieces.some(g => g.index !== null);
   for (const g of pieces) {
+    if (indexed && !g.index) {
+      const count = g.getAttribute('position').count;
+      const indices = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
+      for (let i = 0; i < count; i++) indices[i] = i;
+      g.setIndex(new THREE.BufferAttribute(indices, 1));
+    }
     if (allUv) withAoUv(g);
-    else g.deleteAttribute('uv1');
+    else {
+      g.deleteAttribute('uv');
+      g.deleteAttribute('uv1');
+    }
+    if (faceUvs && !g.hasAttribute('finishFaceUv')) {
+      // The paint shader falls back to ordinary primitive UVs at this sentinel.
+      const count = g.getAttribute('position').count;
+      g.setAttribute('finishFaceUv', new THREE.BufferAttribute(new Float32Array(count * 2).fill(-1), 2));
+    }
   }
-  if (!allUv) for (const g of pieces) g.deleteAttribute('uv');
   const merged = mergeGeometries(pieces);
   if (!merged) throw new Error('mergeCompatible: incompatible geometry attributes');
   return merged;

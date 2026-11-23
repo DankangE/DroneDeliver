@@ -1,17 +1,36 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeCompatible as mergeGeometries } from '../materials';
-import { solid } from '../materials';
+import { mergeCompatible, solid } from '../materials';
 
 export const point = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 export const tau = 2 * Math.PI;
 
+const moldings = new Map<string, RoundedBoxGeometry>();
+
 export function rounded(parent: THREE.Object3D, w: number, h: number, d: number, r: number, mat: THREE.Material, x = 0, y = 0, z = 0) {
-  return solid(parent, new RoundedBoxGeometry(w, h, d, 3, r), mat, x, y, z);
+  const key = [w, h, d, r].join('/');
+  let geometry = moldings.get(key);
+  if (!geometry) {
+    geometry = new RoundedBoxGeometry(w, h, d, 3, r);
+    const uv = geometry.getAttribute('uv'), perFace = uv.count / 6;
+    for (let i = 0; i < uv.count; i++) {
+      const axis = Math.floor(i / (2 * perFace));
+      uv.setXY(i, uv.getX(i) * (axis === 0 ? d : w), uv.getY(i) * (axis === 1 ? d : h));
+    }
+    moldings.set(key, geometry);
+  }
+  return solid(parent, geometry, mat, x, y, z);
 }
 
 export function turned(parent: THREE.Object3D, profile: [number, number][], mat: THREE.Material, x = 0, y = 0, z = 0) {
   const geometry = new THREE.LatheGeometry(profile.map(([r, h]) => new THREE.Vector2(r, h)), 48);
+  const uv = geometry.getAttribute('uv');
+  const circumference = tau * Math.max(...profile.map(([r]) => r));
+  let distance = 0;
+  profile.forEach(([r, y], row) => {
+    if (row) distance += Math.hypot(r - profile[row - 1][0], y - profile[row - 1][1]);
+    for (let i = row; i < uv.count; i += profile.length) uv.setXY(i, uv.getX(i) * circumference, distance);
+  });
   return solid(parent, geometry, mat, x, y, z);
 }
 
@@ -28,7 +47,10 @@ export function rod(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vecto
 
 export function hose(parent: THREE.Object3D, points: THREE.Vector3[], radius: number, mat: THREE.Material) {
   const curve = new THREE.CatmullRomCurve3(points);
-  return solid(parent, new THREE.TubeGeometry(curve, points.length * 5, radius, 10, false), mat);
+  const geometry = new THREE.TubeGeometry(curve, points.length * 5, radius, 10, false);
+  const uv = geometry.getAttribute('uv'), length = curve.getLength();
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * length, uv.getY(i) * tau * radius);
+  return solid(parent, geometry, mat);
 }
 
 // A flanged head with a recessed six-lobe drive, including the walls of the socket.
@@ -48,6 +70,9 @@ const screwGeometry = (() => {
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(xyz, 3));
+  const uv: number[] = [];
+  for (let i = 0; i < xyz.length; i += 3) uv.push(xyz[i] * 0.015, xyz[i + 2] * 0.015);
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geometry.setIndex(index);
   geometry.computeVertexNormals();
   return geometry;
@@ -67,12 +92,7 @@ export function batchRigidParts(group: THREE.Group) {
   const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
   group.traverse(part => {
     if (!(part instanceof THREE.Mesh)) return;
-    const geometry = part.geometry.clone();
-    // Preserve the shared vertices on the windings and other turned parts when
-    // mixing them with the unindexed geometry of a rounded injection molding.
-    if (!geometry.index) {
-      geometry.setIndex(Array.from({ length: geometry.getAttribute('position').count }, (_, i) => i));
-    }
+    const geometry = new THREE.BufferGeometry().copy(part.geometry);
     geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, part.matrixWorld));
     const parts = batches.get(part.material);
     if (parts) parts.push(geometry);
@@ -80,12 +100,6 @@ export function batchRigidParts(group: THREE.Group) {
   });
   group.clear();
   for (const [material, parts] of batches) {
-    // Socket heads have no texture coordinates. The rest of their metal batch may have UVs.
-    for (const geometry of parts) {
-      if (!geometry.hasAttribute('uv')) {
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(2 * geometry.getAttribute('position').count), 2));
-      }
-    }
-    solid(group, mergeGeometries(parts), material);
+    solid(group, mergeCompatible(parts), material);
   }
 }

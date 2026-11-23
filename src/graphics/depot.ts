@@ -1,8 +1,11 @@
 import * as THREE from 'three';
-import { mergeCompatible as mergeGeometries } from './materials';
+import { hangarCladding } from './cladding';
 import { BASE, DESTINATIONS } from '../config';
 import { batteryPack } from './drone';
-import { DRONE_COLORS, KO_FONT, box, canvasTex, finish, groundPlane, ink, lamp, seeded, solid, type Surfaces } from './materials';
+import {
+  DRONE_COLORS, KO_FONT, box, brushedAluminium, canvasTex, cardboard, emissiveLedPanel, glossPlastic,
+  groundPlane, ink, mattePlastic, mergeCompatible, paintedSteel, rubber, seeded, solid, tintedWindowGlass, type Surfaces,
+} from './materials';
 
 function labelTex(text: string, sub: string, color: number) {
   return canvasTex(512, 160, g => {
@@ -70,44 +73,39 @@ function hose(parent: THREE.Object3D, points: XYZ[], radius: number, material: T
 }
 
 // Chips reveal the surface under the ink, with more wear where a wheel or boot has passed.
-function chipInk(g: CanvasRenderingContext2D, rnd: Random, w: number, h: number, count: number) {
-  g.save();
-  g.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < count; i++) {
-    const x = rnd() * w, y = rnd() * h;
-    g.fillStyle = 'rgba(0,0,0,' + (0.18 + rnd() * 0.74) + ')';
-    for (let chip = 0; chip < 4; chip++) {
-      g.fillRect(x + rnd() * 5, y + rnd() * 4, 0.7 + rnd() * rnd() * 5, 1 + rnd() * 2);
+let wearTile: HTMLCanvasElement | undefined;
+function chipInk(g: CanvasRenderingContext2D, rnd: Random, w: number, h: number) {
+  // The apron and pad stencils have the same texel density of missing ink.
+  // Rasterize one repeatable stamp instead of erasing individual chips on every slab.
+  if (!wearTile) {
+    wearTile = document.createElement('canvas');
+    wearTile.width = wearTile.height = 512;
+    const stamp = wearTile.getContext('2d')!, noise = seeded(2471);
+    for (let i = 0; i < 1200; i++) {
+      const x = noise() * 512, y = noise() * 512;
+      stamp.globalAlpha = 0.18 + noise() * 0.74;
+      for (let chip = 0; chip < 4; chip++) {
+        stamp.fillRect(x + noise() * 5, y + noise() * 4, 0.7 + noise() * noise() * 5, 1 + noise() * 2);
+      }
     }
   }
+  g.save();
+  g.globalCompositeOperation = 'destination-out';
+  const x = Math.floor(rnd() * 512), y = Math.floor(rnd() * 512);
+  g.translate(-x, -y);
+  g.fillStyle = g.createPattern(wearTile, 'repeat')!;
+  g.fillRect(x, y, w, h);
   g.restore();
-}
-
-function enamel(base: string, undercoat: string) {
-  const map = canvasTex(512, 512, g => {
-    const rnd = seeded(27953);
-    g.fillStyle = base; g.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 4800; i++) {
-      g.fillStyle = i % 2 ? 'rgba(246,240,219,.05)' : 'rgba(46,40,31,.05)';
-      g.fillRect(rnd() * 512, rnd() * 512, 1 + rnd() * 2.7, 1);
-    }
-    for (let i = 0; i < 110; i++) {
-      const x = rnd() * 512, y = rnd() * 512;
-      g.fillStyle = undercoat; g.fillRect(x, y, 0.8 + rnd() * 3, 1);
-      if (i % 8 === 0) g.fillRect(x + 1, y + 1, 1 + rnd() * 9, 0.85);
-    }
-  });
-  map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  return new THREE.MeshStandardMaterial({ map, roughness: 0.53, metalness: 0.22 });
 }
 
 function depotFinishes() {
   return {
-    steel: enamel('#475b5b', '#8b8678'), orange: enamel('#dc6d26', '#836a51'),
-    blue: enamel('#225479', '#9a9586'), ivory: enamel('#d1d2c6', '#9a9c8b'),
-    zinc: finish(0xaeb6b5, 0.39, 0.68), dark: finish(0x30393c, 0.62, 0.17),
-    rubber: finish(0x2f302e, 0.91), red: enamel('#b23b2f', '#7d756c'),
-    greenLed: lamp(0x8deac3, 1.8), lens: lamp(0xfff4de, 3.2),
+    steel: paintedSteel(0x475b5b), orange: paintedSteel(0xdc6d26),
+    blue: paintedSteel(0x225479), ivory: paintedSteel(0xd1d2c6),
+    zinc: brushedAluminium(0xaeb6b5), dark: mattePlastic(0x30393c),
+    cone: mattePlastic(0xe3732d), reflector: glossPlastic(0xede9d9),
+    rubber: rubber(0x2f302e), red: paintedSteel(0xb23b2f),
+    greenLed: emissiveLedPanel(0x8deac3, 1.8), lens: emissiveLedPanel(0xfff4de, 3.2),
   };
 }
 type Finishes = ReturnType<typeof depotFinishes>;
@@ -123,12 +121,12 @@ function installSection(scene: THREE.Scene, section: THREE.Group) {
     if (!byShadow) batches.set(material, byShadow = new Map());
     let parts = byShadow.get(obj.castShadow);
     if (!parts) byShadow.set(obj.castShadow, parts = []);
-    const geo = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
+    const geo = new THREE.BufferGeometry().copy(obj.geometry);
     parts.push(geo.applyMatrix4(obj.matrixWorld));
   });
   const result = new THREE.Group(); result.name = section.name;
   for (const [material, byShadow] of batches) for (const [casts, parts] of byShadow) {
-    const mesh = solid(result, mergeGeometries(parts), material);
+    const mesh = solid(result, mergeCompatible(parts), material);
     mesh.castShadow = casts;
     for (const part of parts) part.dispose();
   }
@@ -154,7 +152,7 @@ function apron(section: THREE.Group, s: Surfaces) {
       g.rotate(-0.67); g.fillRect(-0.6, -0.032, 1.2, 0.064); g.restore();
     }
     g.restore();
-    chipInk(g, rnd, 2560, 2048, 21000);
+    chipInk(g, rnd, 2560, 2048);
     g.scale(64, 64); g.translate(20, 9.5);
     for (let i = 0; i < 95; i++) {
       const x = (rnd() - 0.5) * 27, z = -7.8 + rnd() * 27;
@@ -182,9 +180,22 @@ function hangar(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene, s: S
   const h = BASE.hangar, H = 5.5, depth = h.maxZ - h.minZ, midZ = (h.minZ + h.maxZ) / 2;
   const block = (w: number, ht: number, d: number, mat: THREE.Material, x: number, y: number, z: number) =>
     box(group, w, ht, d, mat, x, y, z);
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x68828b, roughness: 0.14, metalness: 0.39, clearcoat: 1 });
-  const daylight = new THREE.MeshPhysicalMaterial({ color: 0xdce3dd, emissive: 0xafc7d1, emissiveIntensity: 0.28,
-    roughness: 0.34, transparent: true, opacity: 0.57, depthWrite: false, side: THREE.DoubleSide });
+  function wall(w: number, ht: number, d: number, x: number, y: number, z: number, outerFace: number) {
+    const backing = block(w, ht, d, s.iron, x, y, z).geometry;
+    const index = backing.index!;
+    const faces = Array.from(index.array).filter((_, i) => Math.floor(i / 6) !== outerFace);
+    backing.clearGroups();
+    backing.setIndex(faces);
+  }
+  const glass = tintedWindowGlass(0x556a70, 0);
+  const daylight = tintedWindowGlass(0xdce3dd, 0);
+  daylight.emissive.setHex(0xafc7d1);
+  daylight.emissiveIntensity = 0.28;
+  daylight.roughness = 0.34;
+  daylight.transparent = true;
+  daylight.opacity = 0.57;
+  daylight.depthWrite = false;
+  daylight.side = THREE.DoubleSide;
   const hazard = new THREE.MeshStandardMaterial({ roughness: 0.72, map: canvasTex(128, 512, g => {
     g.fillStyle = '#cfaf52'; g.fillRect(0, 0, 128, 512);
     g.strokeStyle = '#383c3a'; g.lineWidth = 40;
@@ -196,9 +207,10 @@ function hangar(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene, s: S
       g.fillStyle = i % 2 ? '#9c967e' : '#706e62'; g.fillRect(rnd() * 128, rnd() * 512, rnd() * 4, 0.8);
     }
   }) });
-  block(24, H, 0.4, s.iron, 0, H / 2, h.minZ);
+  hangarCladding(group, s.iron, h.maxZ, h.minZ, H);
+  wall(24, H, 0.4, 0, H / 2, h.minZ, 5);
   for (const side of [-1, 1]) {
-    block(0.4, H, depth, s.iron, side * 12, H / 2, midZ);
+    wall(0.4, H, depth, side * 12, H / 2, midZ, side > 0 ? 0 : 1);
     for (let j = 0; j < 10; j++) {
       const z = h.minZ + 0.8 + j * 1.6;
       block(0.048, 2.44, 1.58, m.ivory, side * 11.779, 1.50, z);
@@ -207,23 +219,35 @@ function hangar(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene, s: S
     block(0.065, 0.045, depth, m.zinc, side * 11.74, 2.725, midZ);
     // A band of actual windows in the steel-clad front wall.
     const wx = side * 9.25;
-    block(5.5, 2.42, 0.4, s.iron, wx, 1.21, h.maxZ);
-    block(5.5, H - 3.54, 0.4, s.iron, wx, (H + 3.54) / 2, h.maxZ);
-    block(5.5, 0.67, 0.04, m.steel, wx, 0.36, h.maxZ + 0.209);
+    wall(5.5, 2.42, 0.4, wx, 1.21, h.maxZ, 4);
+    wall(5.5, H - 3.54, 0.4, wx, (H + 3.54) / 2, h.maxZ, 4);
+    block(5.5, 0.16, 0.10, m.steel, wx, 0.10, h.maxZ + 0.215);
     block(5.38, 1.12, 0.065, glass, wx, 2.98, h.maxZ);
     for (let j = 0; j <= 4; j++) block(0.072, 1.16, 0.14, m.zinc, wx - 2.72 + j * 1.36, 2.98, h.maxZ);
     for (const y of [2.43, 3.54]) block(5.55, 0.075, 0.47, m.steel, wx, y, h.maxZ);
     block(0.5, H, 0.6, m.steel, side * 6.5, H / 2, h.maxZ);
     for (const face of [-1, 1]) plate(group, 0.44, 1.32, hazard, side * 6.5, 0.78, h.maxZ + face * 0.302, face < 0 ? Math.PI : 0);
-    // A galvanized gutter and its downspout, clamped to the front corner.
-    block(0.22, 0.17, depth + 0.7, m.zinc, side * 12.38, H + 0.07, midZ);
-    hose(group, [[side * 12.36, 5.58, 6.74], [side * 12.36, 5.27, 6.74], [side * 12.24, 4.96, 6.74],
-      [side * 12.24, 0.42, 6.74], [side * 12.38, 0.24, 6.74]], 0.063, m.zinc);
+    // Eave trough with a folded outer lip, hopper and a collared rainwater leader.
+    const gx = side * 12.46, outlet = side * 11.85, face = h.maxZ + 0.36;
+    block(0.32, 0.045, depth + 1.08, m.zinc, gx, H + 0.015, midZ);
+    for (const lip of [-1, 1]) block(0.035, 0.16, depth + 1.08, m.zinc, gx + lip * 0.15, H + 0.09, midZ);
+    block(0.28, 0.23, 0.29, m.zinc, gx, H - 0.09, face);
+    hose(group, [[gx, H - 0.15, face], [gx, H - 0.31, face], [outlet, H - 0.63, face],
+      [outlet, H - 0.84, face], [outlet, 0.64, face], [outlet, 0.32, face], [outlet, 0.18, face + 0.19]], 0.088, m.zinc);
+    for (const y of [0.86, 2.65, 4.32]) {
+      block(0.24, 0.050, 0.21, m.steel, outlet, y, face - 0.06);
+      solid(group, new THREE.CylinderGeometry(0.098, 0.098, 0.060, 16), m.zinc, outlet, y, face);
+    }
+    const lx = side * 4.42;
+    block(0.16, 0.25, 0.36, m.steel, lx, 4.92, h.maxZ + 0.38);
+    const light = block(0.79, 0.16, 0.43, m.dark, lx, 4.90, h.maxZ + 0.57);
+    light.rotation.x = -0.33;
+    block(0.67, 0.055, 0.34, m.lens, lx, 4.82, h.maxZ + 0.61).rotation.x = -0.33;
   }
-  block(13, 1.5, 0.4, s.iron, 0, H - 0.75, h.maxZ);
+  wall(13, 1.5, 0.4, 0, H - 0.75, h.maxZ, 4);
   block(12.52, 0.21, 0.55, m.steel, 0, H - 1.34, h.maxZ - 0.06);
-  block(6.05, 1.24, 0.12, m.dark, 0, H - 0.75, h.maxZ + 0.15);
-  sign(marks, 6, 1.2, '하늘길 택배', '드론 배송 · 1번 기지', 0xffd23f, 0, H - 0.75, h.maxZ + 0.22);
+  block(6.05, 1.24, 0.12, m.dark, 0, H - 0.75, h.maxZ + 0.25);
+  sign(marks, 6, 1.2, '하늘길 택배', '드론 배송 · 1번 기지', 0xffd23f, 0, H - 0.75, h.maxZ + 0.32);
 
   const rise = 0.09, eave = H + 0.13;
   const roofY = (x: number) => eave + (12.5 - Math.abs(x)) * rise;
@@ -410,7 +434,7 @@ function cargoShelves(group: THREE.Group, scene: THREE.Scene, marks: THREE.Scene
   for (const [pz, layers] of [[-4.95, 2], [0.12, 3], [2.66, 1]]) {
     for (let i = 0; i < layers; i++) pallet(group, x, 0.035 + i * 0.138, pz, s.wood);
   }
-  const board = finish(0xb08a5d, 0.94);
+  const board = cardboard(0xb08a5d);
   for (let i = 0; i < 9; i++) {
     const flat = box(group, 0.77 + 0.08 * Math.sin(i), 0.021, 1.05, board, x + 0.02 * Math.cos(i), 1.951 + 0.021 * i, 2.48);
     flat.rotation.y = Math.sin(i * 3) * 0.032;
@@ -502,7 +526,7 @@ function controlRoom(group: THREE.Group, marks: THREE.Scene, m: Finishes) {
   }
   box(group, 5.31, 0.24, 0.07, m.steel, 0, 0.63, deskZ - 0.34);
   const screens = [deskScreen(false), radarScreen(), deskScreen(true)];
-  const keycap = finish(0x525c5d, 0.68);
+  const keycap = mattePlastic(0x525c5d);
   for (const [i, x] of [-1.8, 0, 1.8].entries()) {
     const mount = new THREE.Group(); mount.position.set(x, 1.6, -8.75); mount.rotation.y = (1 - i) * 0.22; group.add(mount);
     box(mount, 1.7, 1.1, 0.075, m.dark, 0, 0, -0.048);
@@ -533,10 +557,10 @@ function controlRoom(group: THREE.Group, marks: THREE.Scene, m: Finishes) {
       caster.rotation.z = Math.PI / 2;
     }
     solid(chair, new THREE.CylinderGeometry(0.033, 0.044, 0.31, 16), m.zinc, 0, 0.298, 0);
-    const seat = solid(chair, new THREE.SphereGeometry(1, 24, 12), m.steel, 0, 0.48, 0);
+    const seat = solid(chair, new THREE.SphereGeometry(1, 24, 12), m.rubber, 0, 0.48, 0);
     seat.scale.set(0.23, 0.052, 0.206);
     box(chair, 0.075, 0.32, 0.035, m.zinc, 0, 0.615, 0.18).rotation.x = 0.11;
-    const back = solid(chair, new THREE.SphereGeometry(1, 24, 12), m.steel, 0, 0.75, 0.203);
+    const back = solid(chair, new THREE.SphereGeometry(1, 24, 12), m.rubber, 0, 0.75, 0.203);
     back.scale.set(0.218, 0.155, 0.036);
   }
   // A wheeled tool chest fits underneath the end of the console bench.
@@ -551,13 +575,13 @@ function controlRoom(group: THREE.Group, marks: THREE.Scene, m: Finishes) {
 }
 
 function trafficCone(group: THREE.Group, x: number, z: number, m: Finishes) {
-  const orange = m.orange;
+  const orange = m.cone;
   box(group, 0.326, 0.037, 0.326, m.rubber, x, 0.045, z);
   solid(group, new THREE.CylinderGeometry(0.129, 0.144, 0.035, 32), orange, x, 0.079, z);
   const r = (y: number) => 0.13 - 0.102 * ((y - 0.095) / 0.422);
   for (const [start, end, white] of [[0.095, 0.251, 0], [0.251, 0.327, 1], [0.327, 0.402, 0],
     [0.402, 0.452, 1], [0.452, 0.517, 0]]) {
-    solid(group, new THREE.CylinderGeometry(r(end), r(start), end - start, 32), white ? m.ivory : orange, x, (start + end) / 2, z);
+    solid(group, new THREE.CylinderGeometry(r(end), r(start), end - start, 32), white ? m.reflector : orange, x, (start + end) / 2, z);
   }
   solid(group, new THREE.CylinderGeometry(0.018, 0.018, 0.002, 20), m.dark, x, 0.518, z);
 }
@@ -608,7 +632,7 @@ function launchPads(group: THREE.Group, marks: THREE.Scene, s: Surfaces, m: Fini
       g.save(); g.translate(512, 512);
       for (let j = 0; j < 8; j++) { g.fillRect(-3, -418, 6, 22); g.rotate(tau / 8); }
       g.restore();
-      chipInk(g, rnd, 1024, 1024, 6100);
+      chipInk(g, rnd, 1024, 1024);
       g.globalCompositeOperation = 'destination-out';
       for (let j = 0; j < 95; j++) {
         const x = rnd() * 1024, y = rnd() * 1024;

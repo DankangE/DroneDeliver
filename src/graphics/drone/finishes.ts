@@ -1,69 +1,12 @@
 import * as THREE from 'three';
-import { canvasTex, finish, KO_FONT, seeded } from '../materials';
-import { tau } from './parts';
-
-function tile(data: Uint8Array<ArrayBuffer>, size: number, srgb = false) {
-  const texture = new THREE.DataTexture(data, size, size);
-  texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.setScalar(27);
-  texture.anisotropy = 8;
-  texture.generateMipmaps = true;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
-  return texture;
-}
-
-function carbonLaminate() {
-  const size = 256, albedo = new Uint8Array(size * size * 4);
-  const normal = albedo.slice(), roughness = albedo.slice(), height = new Float32Array(size * size);
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    // In a 2/2 twill each tow passes over two and under two. Shift the crossing
-    // by one on the next row so that highlights follow the diagonal wale.
-    const u = 8 * (x + y) / size + 8, v = 8 * (y - x) / size + 8;
-    const warp = ((Math.floor(u) - Math.floor(v) + 32) % 4) < 2;
-    const across = warp ? u : v, along = warp ? v : u;
-    const crown = Math.pow(Math.max(0, Math.sin(Math.PI * (across % 1))), 0.55);
-    const fibre = Math.cos(tau * 5 * across + 0.3 * Math.sin(tau * along / 2));
-    const p = y * size + x;
-    height[p] = crown * (0.74 + 0.16 * Math.cos(Math.PI * (along - Math.floor(across)))) + 0.055 * fibre;
-    const value = 37 + crown * (warp ? 17 : 8) + fibre * 2;
-    albedo.set([value, value + 3, value + 5, 255], 4 * p);
-    roughness.set([0, 143 + (warp ? -11 : 9) - fibre * 7, 0, 255], 4 * p);
-  }
-  const sample = (x: number, y: number) => height[((y + size) % size) * size + (x + size) % size];
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const dx = (sample(x - 1, y) - sample(x + 1, y)) * 1.7;
-    const dy = (sample(x, y - 1) - sample(x, y + 1)) * 1.7;
-    const length = Math.hypot(dx, dy, 1);
-    normal.set([127.5 + dx * 127.5 / length, 127.5 + dy * 127.5 / length, 127.5 + 127.5 / length, 255], 4 * (y * size + x));
-  }
-  return new THREE.MeshPhysicalMaterial({
-    map: tile(albedo, size, true), normalMap: tile(normal, size), roughnessMap: tile(roughness, size),
-    roughness: 0.9, clearcoat: 0.43, clearcoatRoughness: 0.27,
-  });
-}
+import { brushedAluminium, canvasTex, carbonFibre, glossPlastic, KO_FONT, mattePlastic, rubber, seeded } from '../materials';
 
 function makeFinishes() {
-  const rnd = seeded(256), size = 128, grain = new Uint8Array(size * size * 4);
-  for (let i = 0; i < grain.length; i += 4) {
-    const value = 65 + rnd() * 126;
-    grain.set([value, value, value, 255], i);
-  }
-  const texture = tile(grain, size);
-  texture.repeat.setScalar(3);
-  const nylon = new THREE.MeshStandardMaterial({ color: 0x333c3e, roughness: 0.55, bumpMap: texture, bumpScale: 0.00023 });
-  const shell = new THREE.MeshPhysicalMaterial({
-    color: 0xc7c8be, roughness: 0.45, clearcoat: 0.18, clearcoatRoughness: 0.38,
-    bumpMap: texture, bumpScale: 0.00014,
-  });
   return {
-    carbon: carbonLaminate(), nylon, shell,
-    gasket: finish(0x191e20, 0.85), rubber: finish(0x262a2a, 0.91),
-    anodized: finish(0x424b4d, 0.31, 0.78), titanium: finish(0x9a9e9a, 0.32, 0.86),
-    sockets: finish(0x686d6c, 0.36, 0.83), copper: finish(0xb86534, 0.31, 0.72),
-    brass: finish(0xc9a567, 0.28, 0.77), latch: finish(0xb35737, 0.55),
+    carbon: carbonFibre(), nylon: mattePlastic(0x333c3e), shell: glossPlastic(0xc7c8be),
+    gasket: rubber(0x191e20), rubber: rubber(0x262a2a), latch: mattePlastic(0xb35737),
+    anodized: brushedAluminium(0x566063), titanium: brushedAluminium(0xadafae),
+    sockets: brushedAluminium(0x737978), copper: brushedAluminium(0xd18a60), brass: brushedAluminium(0xc9a567),
   };
 }
 

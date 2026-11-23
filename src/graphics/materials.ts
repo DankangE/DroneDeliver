@@ -29,14 +29,11 @@ export function finish(color: number, roughness = 0.65, metalness = 0) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
 
-export function lamp(color: number, intensity: number) {
-  return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity, roughness: 0.28 });
-}
-
 // Project in metres so a sheet of steel has the same grain on a shelf edge and a hangar door.
-export function boxGeo(w: number, h: number, d: number) {
+export function boxGeo(w: number, h: number, d: number, paintEdges = false) {
   const geometry = new THREE.BoxGeometry(w, h, d);
   const uv = geometry.getAttribute('uv');
+  if (paintEdges) geometry.setAttribute('finishFaceUv', uv.clone());
   const normal = geometry.getAttribute('normal');
   for (let i = 0; i < uv.count; i++) {
     const side = Math.abs(normal.getX(i)) > 0.5;
@@ -88,7 +85,8 @@ export function solid<G extends THREE.BufferGeometry, M extends THREE.Material>(
 }
 
 export function box(parent: THREE.Object3D, w: number, h: number, d: number, material: THREE.Material, x: number, y: number, z: number) {
-  return solid(parent, boxGeo(w, h, d), material, x, y, z);
+  const paintEdges = material instanceof TiledMaterial && material.profile === 'paintedSteel';
+  return solid(parent, boxGeo(w, h, d, paintEdges), material, x, y, z);
 }
 
 export function groundPlane(parent: THREE.Object3D, w: number, d: number, material: THREE.Material, x: number, y: number, z: number) {
@@ -102,7 +100,7 @@ export function strut(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vec
   const axis = to.clone().sub(from);
   const length = axis.length();
   const geometry = new THREE.CylinderGeometry(radius, radius, length, 12);
-  if (material instanceof TiledMaterial) {
+  if (material instanceof THREE.MeshStandardMaterial && material.map?.wrapS === THREE.RepeatWrapping) {
     const uv = geometry.getAttribute('uv'), normals = geometry.getAttribute('normal');
     for (let i = 0; i < uv.count; i++) {
       const cap = Math.abs(normals.getY(i)) > 0.5;

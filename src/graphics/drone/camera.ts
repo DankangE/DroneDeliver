@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { solid } from '../materials';
+import { solid, tintedWindowGlass } from '../materials';
 import { finishes } from './finishes';
 import { hose, point, rod, rounded, screw, turned } from './parts';
 
@@ -30,14 +30,14 @@ export function addCamera(body: THREE.Group) {
   const iris = solid(barrel, new THREE.CircleGeometry(0.048, 48), m.gasket, 0, 0.029, 0);
   iris.rotation.x = -Math.PI / 2;
   turned(barrel, [[0.042, 0.031], [0.041, 0.035], [0.025, 0.034], [0.022, 0.032]], m.anodized);
-  const pupil = solid(barrel, new THREE.SphereGeometry(1, 32, 16), new THREE.MeshPhysicalMaterial({
-    color: 0x0c2128, metalness: 0.33, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04,
-  }), 0, 0.035, 0);
+  const pupil = solid(barrel, new THREE.SphereGeometry(1, 32, 16), tintedWindowGlass(0x0c2128, 0), 0, 0.035, 0);
   pupil.scale.set(0.024, 0.004, 0.024);
-  const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x548e9b, roughness: 0.045, clearcoat: 1, clearcoatRoughness: 0.035,
-    metalness: 0.23, iridescence: 0.45, iridescenceIOR: 1.32, transparent: true, opacity: 0.33, depthWrite: false,
-  });
+  const glass = tintedWindowGlass(0x548e9b, 0);
+  glass.iridescence = 0.45;
+  glass.iridescenceIOR = 1.32;
+  glass.transparent = true;
+  glass.opacity = 0.33;
+  glass.depthWrite = false;
   const window = solid(barrel, new THREE.SphereGeometry(1, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), glass, 0, 0.044, 0);
   window.scale.set(0.051, 0.008, 0.051);
 }

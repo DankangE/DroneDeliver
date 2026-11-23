@@ -1,36 +1,36 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { DESTINATIONS } from '../config';
-import { KO_FONT, box, canvasTex, finish, seeded, solid, type Surfaces } from './materials';
+import { KO_FONT, box, brushedAluminium, canvasTex, cardboard, glossPlastic, seeded, solid, type Surfaces } from './materials';
 
-const boardStock = new Map<boolean, THREE.MeshStandardMaterial>();
+const boardStock = new Map<boolean, THREE.MeshPhysicalMaterial>();
+const bands = new Map<string, THREE.Material>();
+let boardFace: THREE.Texture | undefined;
 let packingTape: THREE.MeshPhysicalMaterial | undefined;
+let lidSeam: THREE.Material | undefined;
+let nailHead: THREE.Material | undefined;
 
 function kraftBoard(pale: boolean) {
-  const stock = boardStock.get(pale);
-  if (stock) return stock;
-  const random = seeded(pale ? 5723 : 8531);
-  const map = canvasTex(512, 512, g => {
-    const pixels = g.createImageData(512, 512);
-    for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
-      const i = (512 * y + x) * 4;
-      const grain = random() * 11 + 1.8 * Math.sin(x * 0.69) + 1.5 * Math.sin(y / 37 + x / 58);
-      const edge = Math.min(x, y, 511 - x, 511 - y);
-      const crease = Math.max(0, 1 - edge / 9) * 13;
-      pixels.data[i] = (pale ? 188 : 164) + grain - crease;
-      pixels.data[i + 1] = (pale ? 145 : 119) + grain - crease;
-      pixels.data[i + 2] = (pale ? 94 : 73) + grain - crease;
-      pixels.data[i + 3] = 255;
-    }
-    g.putImageData(pixels, 0, 0);
-    for (let n = 0; n < 3600; n++) {
-      g.fillStyle = n % 3 ? 'rgba(85,62,36,.14)' : 'rgba(253,239,205,.35)';
-      g.fillRect(random() * 512, random() * 512, 0.5 + random() * 2.8, 0.65);
-    }
-  });
-  const material = new THREE.MeshStandardMaterial({ map, bumpMap: map, bumpScale: 0.00065, roughness: 0.94 });
-  boardStock.set(pale, material);
-  return material;
+  let stock = boardStock.get(pale);
+  if (!stock) {
+    stock = cardboard(pale ? 0xc59b6b : 0xb08759);
+    // A shallow compression line just inside each folded edge sits over the
+    // shared paper-fibre relief. Keep this mask in the carton face's own UVs.
+    stock.map = boardFace ??= canvasTex(256, 256, g => {
+      g.fillStyle = '#faf8f3'; g.fillRect(0, 0, 256, 256);
+      g.translate(128, 128);
+      for (let edge = 0; edge < 4; edge++) {
+        const fold = g.createLinearGradient(-128, 0, -118, 0);
+        fold.addColorStop(0, 'rgba(92,66,40,.25)');
+        fold.addColorStop(0.42, 'rgba(133,104,77,.10)');
+        fold.addColorStop(1, 'rgba(133,104,77,0)');
+        g.fillStyle = fold; g.fillRect(-128, -128, 10, 256);
+        g.rotate(Math.PI / 2);
+      }
+    });
+    boardStock.set(pale, stock);
+  }
+  return stock;
 }
 
 function tapeMaterial() {
@@ -44,7 +44,23 @@ function tapeMaterial() {
     }
     g.fillStyle = 'rgba(255,236,202,.34)'; g.fillRect(1, 0, 1, 256);
   });
-  return new THREE.MeshPhysicalMaterial({ map, roughness: 0.36, clearcoat: 0.6, clearcoatRoughness: 0.26 });
+  const tape = glossPlastic(0xffffff);
+  tape.map = map;
+  return tape;
+}
+
+function routingBand(code: string, color: number) {
+  const key = code + '/' + color;
+  const cached = bands.get(key);
+  if (cached) return cached;
+  const band = new THREE.MeshStandardMaterial({ roughness: 0.62, map: canvasTex(512, 56, g => {
+    g.fillStyle = new THREE.Color(color).getStyle(); g.fillRect(0, 0, 512, 56);
+    g.fillStyle = '#313331'; g.font = `bold 29px ${KO_FONT}`; g.fillText(code, 16, 39);
+    g.font = `20px ${KO_FONT}`; g.fillText('취급주의', 400, 36);
+    g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(0, 2, 512, 1);
+  }) });
+  bands.set(key, band);
+  return band;
 }
 
 function shippingLabel(code: string, color: number, serial: number) {
@@ -81,14 +97,9 @@ export function crateModel(code: string, color: number, variant: number, s: Surf
   const plywood = (variant + code.charCodeAt(0)) % 4 === 0;
   const mat = plywood ? s.wood : kraftBoard(variant !== 2);
   const tape = packingTape ??= tapeMaterial();
-  const band = new THREE.MeshStandardMaterial({ roughness: 0.62, map: canvasTex(512, 56, g => {
-    g.fillStyle = new THREE.Color(color).getStyle(); g.fillRect(0, 0, 512, 56);
-    g.fillStyle = '#313331'; g.font = `bold 29px ${KO_FONT}`; g.fillText(code, 16, 39);
-    g.font = `20px ${KO_FONT}`; g.fillText('취급주의', 400, 36);
-    g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(0, 2, 512, 1);
-  }) });
+  const band = routingBand(code, color);
   const paper = shippingLabel(code, color, serial);
-  const seam = finish(0x725034, 0.96);
+  const seam = lidSeam ??= cardboard(0x725034);
   solid(model, new RoundedBoxGeometry(0.66, 0.68, 0.66, 2, 0.007), mat);
   const tapeOffset = (rnd() - 0.5) * 0.045;
   const bandY = 0.19 + (rnd() - 0.5) * 0.016;
@@ -108,7 +119,7 @@ export function crateModel(code: string, color: number, variant: number, s: Surf
       for (const y of [-0.307, 0.306]) {
         box(face, 0.674, 0.047, 0.011, s.wood, 0, y, 0.333);
         for (const x of [-0.28, 0.28]) {
-          const head = solid(face, new THREE.CircleGeometry(0.0048, 8), seam, x, y, 0.3388);
+          const head = solid(face, new THREE.CircleGeometry(0.0048, 8), nailHead ??= brushedAluminium(0x85857d), x, y, 0.3388);
           head.castShadow = false;
         }
       }

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { mergeCompatible as mergeGeometries } from '../materials';
-import { canvasTex, finish, ROTOR_BLUR_LAYER, solid } from '../materials';
+import { canvasTex, mattePlastic, mergeCompatible, ROTOR_BLUR_LAYER, solid } from '../materials';
 import { finishes } from './finishes';
 import { batchRigidParts, hose, point, rod, rounded, screw, tau, turned } from './parts';
 
@@ -16,6 +15,7 @@ const stations = [
 
 function bladeGeometry() {
   const positions: number[] = [], colors: number[] = [], index: number[] = [];
+  const uvs: number[] = [];
   const perimeter = 32;
   const graphite = new THREE.Color(0x343b3c), marking = new THREE.Color(0xb9b7a7);
   stations.forEach(([r, chord, sweep, height, degrees], row) => {
@@ -27,6 +27,7 @@ function bladeGeometry() {
       const lift = chord * (0.11 * t * (1 - t) + (j < perimeter / 2 ? 1 : -1) * thickness);
       const offset = (t - 0.30) * chord;
       positions.push(r, height + lift * Math.cos(pitch) - offset * Math.sin(pitch), sweep + offset * Math.cos(pitch) + lift * Math.sin(pitch));
+      uvs.push(r, sweep + offset);
       const color = r >= 0.45 && r <= 0.46 ? marking : graphite;
       colors.push(color.r, color.g, color.b);
       if (row + 1 < stations.length) {
@@ -42,9 +43,10 @@ function bladeGeometry() {
   const blade = new THREE.BufferGeometry();
   blade.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   blade.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  blade.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   blade.setIndex(index);
   blade.computeVertexNormals();
-  return mergeGeometries([blade, blade.clone().rotateY(Math.PI)]);
+  return mergeCompatible([blade, blade.clone().rotateY(Math.PI)]);
 }
 
 const discRadius = 0.516;
@@ -85,7 +87,7 @@ function motorWindings() {
     points.push(point(0.017 * Math.cos(a), 0.024 * Math.sin(a), 0.055 + 0.041 * t));
   }
   const wire = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 100, 0.0036, 7, false);
-  return mergeGeometries(Array.from({ length: 12 }, (_, i) => wire.clone().rotateY(tau * i / 12)));
+  return mergeCompatible(Array.from({ length: 12 }, (_, i) => wire.clone().rotateY(tau * i / 12)));
 }
 
 function rotorParts() {
@@ -103,7 +105,7 @@ function rotorParts() {
   turned(bell, [[0.033, -0.031], [0.041, -0.023], [0.037, -0.011], [0.032, -0.006], [0.032, 0.013], [0.019, 0.017], [0, 0.017]], m.titanium);
   screw(bell, 0, 0.018, 0, 0.016, m.sockets);
   batchRigidParts(bell);
-  const blades = finish(0xffffff, 0.42, 0.12);
+  const blades = mattePlastic(0xffffff);
   blades.vertexColors = true;
   return { bell, winding: motorWindings(), prop: bladeGeometry(), blades, disc: exposureDisc(), discGeometry: new THREE.CircleGeometry(discRadius, 96) };
 }

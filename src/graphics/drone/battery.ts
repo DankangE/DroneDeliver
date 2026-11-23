@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lamp, solid } from '../materials';
+import { emissiveLedPanel, solid } from '../materials';
 import { batteryPlate, finishes } from './finishes';
 import { batchRigidParts, rounded, screw } from './parts';
 
@@ -38,7 +38,7 @@ export function makePack(metal: THREE.Material) {
     housings.set(metal, template);
   }
   const pack = template.clone();
-  const gauge = lamp(0x55ed92, 2.4);
+  const gauge = emissiveLedPanel(0x55ed92, 2.4);
   // The emitter's origin is its left terminal. World scales its X axis as the pack drains.
   const bar = new THREE.BoxGeometry(0.136, 0.012, 0.002).translate(0.068, 0, 0);
   const battery = solid(pack, bar, gauge, -0.068, 0.137, 0.100);

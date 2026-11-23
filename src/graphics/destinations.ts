@@ -1,21 +1,27 @@
 import * as THREE from 'three';
-import { mergeCompatible as mergeGeometries } from './materials';
 import { DESTINATIONS, type Destination } from '../config';
-import { KO_FONT, box, canvasTex, finish, groundPlane, ink, lamp, seeded, solid, strut, type Surfaces } from './materials';
-import { masonryMaterial, signMaterial } from './terrain';
+import {
+  KO_FONT, box, brushedAluminium, canvasTex, emissiveLedPanel, finish, glossPlastic, groundPlane, ink, mattePlastic,
+  mergeCompatible, paintedSteel, rubber, seeded, solid, strut, tintedWindowGlass, weatheredPaintOverConcrete, type Surfaces,
+} from './materials';
+import { masonryMaterial, signMaterial } from './architecture-materials';
 
 const halfTurn = Math.PI, tau = 2 * Math.PI;
 const vec = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
-function siteMaterials() {
+function siteMaterials(s: Surfaces) {
+  const curtain = tintedWindowGlass(0xabae9f, 0);
+  curtain.roughness = 0.19;
+  const film = glossPlastic(0xc1cec0);
+  film.roughness = 0.46;
+  film.side = THREE.DoubleSide;
   return {
-    plaster: finish(0xe1ddd1, 0.89), slate: finish(0x65726e, 0.85), chalk: finish(0xe6e1cf, 0.89),
+    plaster: weatheredPaintOverConcrete(0xe1ddd1), slate: weatheredPaintOverConcrete(0x65726e), chalk: weatheredPaintOverConcrete(0xe6e1cf),
     brick: masonryMaterial(0xb07b62, 0xab9987), clay: masonryMaterial(0xd1b59a, 0xbcb3a3),
-    zinc: finish(0xafb5ae, 0.39, 0.63), frame: finish(0x495659, 0.50, 0.41),
-    glass: new THREE.MeshPhysicalMaterial({ color: 0x718d92, roughness: 0.13, metalness: 0.39, clearcoat: 1, envMapIntensity: 1.25 }),
-    curtain: new THREE.MeshPhysicalMaterial({ color: 0xabae9f, metalness: 0.18, roughness: 0.29, clearcoat: 0.79 }),
-    leaves: finish(0x718b52, 0.96), timber: finish(0x957758, 0.88),
-    soil: finish(0x67533f, 0.98), membrane: finish(0x819e96, 0.86),
+    zinc: brushedAluminium(0xafb5ae), frame: paintedSteel(0x495659),
+    glass: tintedWindowGlass(0x607d82, 0), curtain, film,
+    leaves: finish(0x718b52, 0.96), timber: s.wood,
+    soil: finish(0x67533f, 0.98), membrane: rubber(0x819e96),
   };
 }
 
@@ -79,18 +85,18 @@ class Site {
       if (!(part instanceof THREE.Mesh) || !(part.material instanceof THREE.Material)) return;
       let group = cells.get(part.material);
       if (!group) cells.set(part.material, group = []);
-      // Drop groups and normalize the index layout across tubes, boxes and extrusions.
-      const geo = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry.clone();
+      // Bake transforms while retaining the shared vertices of tubes and boxes.
+      const geo = new THREE.BufferGeometry().copy(part.geometry);
       geo.applyMatrix4(part.matrixWorld); group.push(geo);
     });
     const site = new THREE.Group(); site.name = this.dest.name;
     scene.add(site);
-    for (const [material, pieces] of cells) solid(site, mergeGeometries(pieces), material);
+    for (const [material, pieces] of cells) solid(site, mergeCompatible(pieces), material);
   }
 }
 
 function clinic(site: Site) {
-  const { m, s } = site, teal = finish(0x568b86, 0.61, 0.14);
+  const { m, s } = site, teal = paintedSteel(0x568b86);
   site.floor(24.5, 12.2, s.floor, 0, -17.2);
   site.block(18.4, 6.85, 8.8, m.plaster, -1.3, 3.425, -19.6);
   site.flatRoof(-1.3, 6.85, -19.6, 18.4, 8.8);
@@ -114,7 +120,7 @@ function clinic(site: Site) {
 }
 
 function harbour(site: Site) {
-  const { m, s } = site, blue = finish(0x718f99, 0.76), orange = finish(0xb28b6e, 0.78);
+  const { m, s } = site, blue = weatheredPaintOverConcrete(0x718f99), orange = paintedSteel(0xb28b6e);
   site.floor(27, 15.0, s.floor, 0, -18);
   site.block(19.4, 15.95, 8.0, m.plaster, -1.1, 7.975, -19.8);
   site.flatRoof(-1.1, 15.95, -19.8, 19.4, 8.0);
@@ -149,13 +155,11 @@ function harbour(site: Site) {
 
 function greenhouse(site: Site, x: number, z: number) {
   const { m } = site, width = 5.5, depth = 11.6, radius = width / 2, spring = 0.84;
-  const polythene = new THREE.MeshPhysicalMaterial({ color: 0xc1cec0, roughness: 0.46,
-    metalness: 0.06, clearcoat: 0.7, clearcoatRoughness: 0.31, side: THREE.DoubleSide });
   const profile = new THREE.Shape();
   profile.moveTo(-radius, 0); profile.lineTo(radius, 0); profile.lineTo(radius, spring);
   profile.absellipse(0, spring, radius, radius * 0.86, 0, halfTurn, false, 0); profile.closePath();
   const sheet = new THREE.ExtrudeGeometry(profile, { depth, bevelEnabled: false, curveSegments: 18 });
-  solid(site.root, sheet, polythene, x, 0, z - depth / 2);
+  solid(site.root, sheet, m.film, x, 0, z - depth / 2);
   for (let i = 0; i <= 7; i++) {
     const at = z - depth / 2 + depth * i / 7;
     const rib = solid(site.root, new THREE.TorusGeometry(radius + 0.025, 0.043, 7, 30, halfTurn), m.zinc, x, spring, at);
@@ -189,15 +193,16 @@ function farm(site: Site) {
       }
     }
   }
+  const drum = mattePlastic(0x566c69);
   for (const x of [-14.6, -13.8, -13.0]) {
-    site.cylinder(0.36, 0.31, 0.77, m.slate, x, 0.39, -7.75);
+    site.cylinder(0.36, 0.31, 0.77, drum, x, 0.39, -7.75);
     site.cylinder(0.37, 0.37, 0.055, m.zinc, x, 0.78, -7.75);
   }
   site.floor(3.1, 12.1, soil, -11.45, 0);
 }
 
 function millCafe(site: Site) {
-  const { m, s } = site, oxblood = finish(0x83584d, 0.82);
+  const { m, s } = site, oxblood = paintedSteel(0x83584d);
   const z = -18.7, x = -1.3, w = 14.2, d = 8.3, eave = 4.15, rise = 2.42;
   site.block(w, eave, d, m.brick, x, eave / 2, z);
   const end = new THREE.Shape();
@@ -239,7 +244,7 @@ function millCafe(site: Site) {
 
 function terrace(site: Site) {
   const { m, s } = site, sandstone = masonryMaterial(0xc0ad92, 0xb7aa93, 0.62, 0.32);
-  const bronze = finish(0x796854, 0.46, 0.50), random = seeded(254);
+  const bronze = brushedAluminium(0x9a8264), random = seeded(254);
   function crescent(inner: number, outer: number, top: number, start: number, sweep: number, material: THREE.Material) {
     const profile = new THREE.Shape();
     profile.absarc(0, 0, outer, start, start + sweep, false);
@@ -278,7 +283,7 @@ function terrace(site: Site) {
 }
 
 function school(site: Site) {
-  const { m, s } = site, ochre = finish(0xd7ad77, 0.75), teal = finish(0x75918c, 0.70);
+  const { m, s } = site, ochre = paintedSteel(0xd7ad77), teal = paintedSteel(0x75918c);
   site.block(24.0, 8.94, 6.5, m.clay, -1.20, 4.47, -19.55);
   site.flatRoof(-1.2, 8.94, -19.55, 24.0, 6.5);
   const front = -16.26;
@@ -339,7 +344,7 @@ function deliveryMark(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, d: De
     ring.rotation.x = -halfTurn / 2; ring.position.set(d.x, 0.06, d.z); marks.add(ring);
   }
   box(scene, 0.3, 14, 0.3, zinc, d.x + 10.5, 7, d.z);
-  solid(scene, new THREE.SphereGeometry(0.7, 24, 16), lamp(d.color, 2), d.x + 10.5, 14.5, d.z);
+  solid(scene, new THREE.SphereGeometry(0.7, 24, 16), emissiveLedPanel(d.color, 2), d.x + 10.5, 14.5, d.z);
   const map = canvasTex(512, 160, g => {
     g.fillStyle = '#172328'; g.fillRect(0, 0, 512, 160);
     g.strokeStyle = '#788482'; g.lineWidth = 3; g.strokeRect(3, 3, 506, 154);
@@ -358,7 +363,7 @@ function deliveryMark(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, d: De
 const sites: Record<string, (site: Site) => void> = { A1: clinic, B2: harbour, C3: farm, D4: millCafe, E5: terrace, F6: school };
 
 export function buildDestinations(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) {
-  const materials = siteMaterials();
+  const materials = siteMaterials(s);
   return DESTINATIONS.map(d => {
     const site = new Site(s, materials, d);
     sites[d.id]?.(site);
