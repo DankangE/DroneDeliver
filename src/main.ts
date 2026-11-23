@@ -120,6 +120,7 @@ function setPaused(p: boolean) {
   if (sim.phase !== 'playing' || paused === p) return;
   paused = p;
   if (p) {
+    if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>Paused</h2><h1>Shift on hold</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">Resume</button><button id="b-retry">Restart stage</button><button id="b-title">Title</button></div>`);
     bind('b-resume', () => { setPaused(false); lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
@@ -192,7 +193,7 @@ const STEP = 1 / 60;
 function frame(now: number) {
   const realDt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (!paused && sim.phase === 'playing') {
+  if (!paused && !onTitle && sim.phase === 'playing') {
     const input = readInput(realDt);
     let remaining = realDt * timeScale;
     while (remaining > 1e-6) {

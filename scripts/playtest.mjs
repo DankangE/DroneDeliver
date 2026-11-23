@@ -254,6 +254,7 @@ async function playStage(stageId, { forcedEvents }) {
   await shot(stageId === 1 ? '11-stage1-clear' : '12-stage2-clear');
 }
 
+let exitCode = 0;
 try {
   await page.goto(url);
   await page.waitForFunction(() => !!window.__game);
@@ -277,10 +278,14 @@ try {
   await wait(300);
   results.smallNotice = await page.isVisible('#small-screen');
   await shot('14-phone-notice');
+} catch (e) {
+  console.error('\nPLAYTEST ABORTED:', e);
+  exitCode = 1;
 } finally {
   await releaseAll().catch(() => {});
   console.log('\nRESULTS', JSON.stringify({ ...results, errors }, null, 1));
+  if (errors.length || results.stages.some((st) => st.phase !== 'clear') || (results.failCheck && results.failCheck !== 'fail')) exitCode = 1;
   await browser.close();
   await server.close();
-  process.exit(0);
+  process.exit(exitCode);
 }

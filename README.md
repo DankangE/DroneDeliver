@@ -109,8 +109,9 @@ Last runs in headless Chrome 1280x720 (2026-11-23), all values in game seconds:
 | A | 32.9, 36.3 | 35.6, 31.0 | clear 713/450 in 96.8 s | clear 1046/1000 in 69.3 s |
 | B | 33.2, 37.1 | 35.9, 37.0, 32.3 | clear 713/450 in 97.9 s | clear 1046/1000 in 72.7 s |
 | C (Stage 2 only) | — | 35.6, 33.5 | — | clear 1046/1000 in 71.5 s |
+| D | 32.0, 38.1 | 33.4, 31.0, 34.2 | clear 713/450 in 97.8 s | clear 1046/1000 in 82.2 s |
 
-The 11 measured round trips ran from **31.0 to 37.1 s**, with a mean of 34.6 s, inside the 30–40 s target. A clean trip with no events takes 31–33 s. Trips with a GPS fault, or a longer steer onto the target, take 35–37 s.
+The 16 measured round trips ran from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s.
 
 Events, all resolved by the bot:
 

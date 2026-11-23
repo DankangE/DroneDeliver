@@ -671,10 +671,13 @@ function movePlayer(s: Sim, input: Input, dt: number) {
   const rad = 0.35;
   const blocked = (x: number, z: number) => boxes.some((b) => x > b.minX - rad && x < b.maxX + rad && z > b.minZ - rad && z < b.maxZ + rad);
   const B = BASE.bounds;
+  // Already inside a collider (e.g. a drone recovered onto the pad the player stands on):
+  // let the player walk out instead of locking every step.
+  const stuck = blocked(p.x, p.z);
   const nx = Math.max(B.minX, Math.min(B.maxX, p.x + dx));
-  if (!blocked(nx, p.z)) p.x = nx;
+  if (stuck || !blocked(nx, p.z)) p.x = nx;
   const nz = Math.max(B.minZ, Math.min(B.maxZ, p.z + dz));
-  if (!blocked(p.x, nz)) p.z = nz;
+  if (stuck || !blocked(p.x, nz)) p.z = nz;
 }
 
 // ---------------------------------------------------------------- main step
