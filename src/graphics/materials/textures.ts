@@ -131,28 +131,35 @@ export function grainMaps(kind: Grain) {
 
 /** Keep metric/normalized UVs compatible when baking mixed primitives. */
 export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const allUv = pieces.every(g => g.hasAttribute('uv'));
-  const faceUvs = pieces.some(g => g.hasAttribute('finishFaceUv'));
+  const templates: THREE.NormalBufferAttributes = {};
+  for (const g of pieces) Object.assign(templates, g.attributes);
+  const attributes = Object.entries(templates);
   const indexed = pieces.some(g => g.index !== null);
   for (const g of pieces) {
+    const count = g.getAttribute('position').count;
     if (indexed && !g.index) {
-      const count = g.getAttribute('position').count;
       const indices = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
       for (let i = 0; i < count; i++) indices[i] = i;
       g.setIndex(new THREE.BufferAttribute(indices, 1));
     }
-    if (allUv) withAoUv(g);
-    else {
-      g.deleteAttribute('uv');
-      g.deleteAttribute('uv1');
-    }
-    if (faceUvs && !g.hasAttribute('finishFaceUv')) {
+    for (const [name, template] of attributes) {
+      if (g.hasAttribute(name)) continue;
+      const { itemSize, normalized } = template;
+      const ArrayType = template.array.constructor as new (length: number) => THREE.TypedArray;
+      const values = new ArrayType(count * itemSize);
       // The paint shader falls back to ordinary primitive UVs at this sentinel.
-      const count = g.getAttribute('position').count;
-      g.setAttribute('finishFaceUv', new THREE.BufferAttribute(new Float32Array(count * 2).fill(-1), 2));
+      if (name === 'finishFaceUv') values.fill(-1);
+      if (template instanceof THREE.InterleavedBufferAttribute) {
+        const buffer = new THREE.InterleavedBuffer(values, itemSize);
+        g.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, itemSize, 0, normalized));
+      } else {
+        const fallback = new THREE.BufferAttribute(values, itemSize, normalized);
+        fallback.gpuType = template.gpuType;
+        g.setAttribute(name, fallback);
+      }
     }
   }
   const merged = mergeGeometries(pieces);
   if (!merged) throw new Error('mergeCompatible: incompatible geometry attributes');
-  return merged;
+  return withAoUv(merged);
 }

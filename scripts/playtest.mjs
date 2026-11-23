@@ -23,6 +23,8 @@ const configFile = join(root, 'vite.config.ts');
 await build({ root, configFile, logLevel: 'warn' });
 const server = await preview({ root, configFile, preview: { port: 5199, strictPort: false } });
 const url = `${server.resolvedUrls.local[0]}?debug=1&nolock=1`;
+const gpuArgs = ['--ignore-gpu-blocklist'];
+if (process.platform === 'darwin') gpuArgs.push('--use-angle=metal');
 const browser = await chromium.launch({
   headless: process.env.HEADED !== '1',
   executablePath: process.env.CHROME_PATH,
@@ -30,7 +32,7 @@ const browser = await chromium.launch({
   // Real GPU by default (Metal on macOS); PLAYTEST_GL=swiftshader forces the software renderer.
   args: [...(process.env.PLAYTEST_GL === 'swiftshader'
     ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
-    : ['--use-angle=metal', '--ignore-gpu-blocklist']), '--autoplay-policy=no-user-gesture-required'],
+    : gpuArgs), '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];

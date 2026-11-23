@@ -11,10 +11,13 @@ import { SunShadows } from './post/sun-shadows';
 
 export class Pipeline {
   readonly markings = new THREE.Scene();
-  private readonly composer: EffectComposer;
   private readonly shadows: SunShadows;
-  private readonly beauty: THREE.WebGLRenderTarget;
-  private readonly finish: ReturnType<typeof printFinish>;
+  private readonly maxTargetSize: number;
+  private readonly post?: {
+    beauty: THREE.WebGLRenderTarget;
+    composer: EffectComposer;
+    finish: ReturnType<typeof printFinish>;
+  };
   private readonly bufferSize = new THREE.Vector2();
   private readonly eye = new THREE.Vector3();
 
@@ -25,18 +28,23 @@ export class Pipeline {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
-    this.shadows = new SunShadows(scene, sunDirection, renderer.capabilities.maxTextureSize);
-    const horizon = daylight(renderer, camera, scene, this.shadows.sun);
+    const gl = renderer.getContext() as WebGL2RenderingContext; // r170 requires WebGL 2
+    this.maxTargetSize = Math.min(renderer.capabilities.maxTextureSize, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE));
+    this.shadows = new SunShadows(scene, sunDirection, this.maxTargetSize);
     camera.layers.enable(ROTOR_BLUR_LAYER);
+    this.watchPixelRatio();
+
+    const hdrSupported = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
+    const horizon = daylight(camera, scene, this.shadows.sun, hdrSupported);
+    if (!horizon) return;
 
     const depth = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
-    const gl = renderer.getContext() as WebGL2RenderingContext; // r170 requires WebGL 2
     const sampleCounts: Int32Array = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES);
-    this.beauty = new THREE.WebGLRenderTarget(1, 1, {
+    const beauty = new THREE.WebGLRenderTarget(1, 1, {
       type: THREE.HalfFloatType, depthTexture: depth,
       samples: Math.max(0, ...Array.from(sampleCounts).filter(n => n <= 4)),
     });
-    this.beauty.texture.name = 'World radiance';
+    beauty.texture.name = 'World radiance';
 
     // Reconstruct GTAO normals from the actual beauty depth. This retains alpha-tested
     // silhouettes and excludes translucent rotor discs that disable depth writes.
@@ -50,39 +58,50 @@ export class Pipeline {
     ao.output = GTAOPass.OUTPUT.Off;
     ao.needsSwap = false;
 
-    this.composer = new EffectComposer(renderer);
-    this.composer.setPixelRatio(1);
-    this.composer.addPass(ao);
-    this.composer.addPass(aerialPerspective(camera, this.beauty, ao.gtaoMap, horizon));
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.085, 0.12, 1.8));
+    const composer = new EffectComposer(renderer);
+    composer.setPixelRatio(1);
+    composer.addPass(ao);
+    composer.addPass(aerialPerspective(camera, beauty, ao.gtaoMap, horizon));
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.085, 0.12, 1.8));
     // r170 SMAA detects and blends edges in display-encoded space. Only OutputPass
     // performs the HDR tone mapping and sRGB transfer.
-    this.composer.addPass(new OutputPass());
-    this.composer.addPass(new SMAAPass(1, 1));
-    this.finish = printFinish(depth);
-    this.composer.addPass(this.finish);
+    composer.addPass(new OutputPass());
+    composer.addPass(new SMAAPass(1, 1));
+    const finish = printFinish(depth);
+    composer.addPass(finish);
+    this.post = { beauty, composer, finish };
+  }
+
+  private watchPixelRatio() {
+    const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    query.addEventListener('change', () => {
+      const { x, y } = this.renderer.getSize(this.bufferSize);
+      this.resize(x, y);
+      this.watchPixelRatio();
+    }, { once: true });
   }
 
   resize(w: number, h: number) {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    this.renderer.setPixelRatio(ratio);
-    this.renderer.setSize(w, h, false);
-    this.renderer.getDrawingBufferSize(this.bufferSize);
+    const ratio = Math.min(window.devicePixelRatio || 1, 2, this.maxTargetSize / Math.max(w, h, 1));
+    this.renderer.setDrawingBufferSize(w, h, ratio);
+    if (!this.post) return;
     // Use integer physical pixels for all depth consumers, including fractional DPRs.
-    this.beauty.setSize(this.bufferSize.x, this.bufferSize.y);
-    this.composer.setSize(this.bufferSize.x, this.bufferSize.y);
+    this.renderer.getDrawingBufferSize(this.bufferSize);
+    this.post.beauty.setSize(this.bufferSize.x, this.bufferSize.y);
+    this.post.composer.setSize(this.bufferSize.x, this.bufferSize.y);
   }
 
   render() {
-    const { renderer, scene, camera } = this;
+    const { renderer, scene, camera, post } = this;
     this.shadows.update(camera.getWorldPosition(this.eye));
     renderer.shadowMap.needsUpdate = true;
-    renderer.setRenderTarget(this.beauty);
+    renderer.setRenderTarget(post?.beauty ?? null);
     renderer.render(scene, camera);
-    renderer.setRenderTarget(null);
-
-    this.finish.uniforms.frame.value = (this.finish.uniforms.frame.value + 1) % 64;
-    this.composer.render();
+    if (post) {
+      renderer.setRenderTarget(null);
+      post.finish.uniforms.frame.value = (post.finish.uniforms.frame.value + 1) % 64;
+      post.composer.render();
+    }
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     try {

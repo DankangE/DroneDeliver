@@ -11,8 +11,13 @@ const horizonSectors = 64;
 const { fromHalfFloat, toHalfFloat } = THREE.DataUtils;
 
 export function daylight(
-  renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, scene: THREE.Scene, sun: THREE.DirectionalLight,
+  camera: THREE.PerspectiveCamera, scene: THREE.Scene, sun: THREE.DirectionalLight, hdrSupported: boolean,
 ) {
+  scene.background = horizonColor;
+  const fill = new THREE.HemisphereLight(0xdbeaff, 0xa59a7b, 1.1);
+  scene.add(fill);
+  if (!hdrSupported) return null;
+
   const strip = new Uint16Array(horizonSectors * 4);
   for (let i = 0; i < strip.length; i += 4) {
     strip.set([toHalfFloat(horizonColor.r), toHalfFloat(horizonColor.g), toHalfFloat(horizonColor.b), toHalfFloat(1)], i);
@@ -21,7 +26,6 @@ export function daylight(
   horizon.wrapS = THREE.RepeatWrapping;
   horizon.minFilter = horizon.magFilter = THREE.LinearFilter;
   horizon.needsUpdate = true;
-  scene.background = horizonColor;
   // r170 keys CubeUV programs by atlas height. A constant one-texel-wide
   // column gives a valid black lookup at every UV, with the final 2K atlas
   // height, so the HDR upload only changes a uniform on the first lit frame.
@@ -31,13 +35,17 @@ export function daylight(
   initialEnvironment.needsUpdate = true;
   scene.environment = initialEnvironment;
   scene.environmentRotation.y = yaw;
-  const fill = new THREE.HemisphereLight(0xdbeaff, 0xa59a7b, 1.1);
-  scene.add(fill);
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  new RGBELoader().setDataType(THREE.HalfFloatType).load('/assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr', sky => {
-    const { width, height, data } = sky.image;
-    const pixels = new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+  async function loadEnvironment() {
+    const response = await fetch('/assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr');
+    if (!response.ok) throw new Error(`HDR request failed (${response.status})`);
+    const buffer = await response.arrayBuffer();
+    const { width, height, data } = new RGBELoader().setDataType(THREE.HalfFloatType).parse(buffer);
+    // The r170 type declaration omits the Uint16Array returned for HalfFloatType.
+    const pixels = data as unknown as Uint16Array<ArrayBuffer>;
+    if (!width || !height || pixels.length !== width * height * 4) {
+      throw new Error('Invalid HDR pixel data');
+    }
     // Integrate a low, broad band of the photographed sky in each azimuth sector.
     // Rotate the lookup into world space here so the airlight needs no per-frame transform.
     for (let sector = 0; sector < horizonSectors; sector++) {
@@ -105,14 +113,19 @@ export function daylight(
     const groundPixel = [toHalfFloat(ground.r), toHalfFloat(ground.g), toHalfFloat(ground.b), toHalfFloat(1)];
     for (let i = start; i < start + stride; i += 4) pixels.set(groundPixel, i);
     for (let i = start + stride; i < pixels.length; i += stride) pixels.copyWithin(i, start, start + stride);
-    sky.mapping = THREE.EquirectangularReflectionMapping;
+    const sky = new THREE.DataTexture(pixels, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+    sky.colorSpace = THREE.LinearSRGBColorSpace;
+    sky.minFilter = sky.magFilter = THREE.LinearFilter;
+    sky.flipY = true;
     sky.wrapS = THREE.RepeatWrapping;
-    scene.environment = pmrem.fromEquirectangular(sky).texture;
+    sky.mapping = THREE.EquirectangularReflectionMapping;
+    sky.needsUpdate = true;
+    // Three rebuilds its PMREM cache from this CPU-backed source after context restoration.
+    scene.environment = sky;
     initialEnvironment.dispose();
     scene.add(skyBackground(camera, sky, horizon, yaw));
     fill.intensity = 0;
-    pmrem.dispose();
-  }, undefined, () => pmrem.dispose());
-  pmrem.compileEquirectangularShader();
+  }
+  loadEnvironment().catch(error => console.warn('Could not load daylight HDR', error));
   return horizon;
 }
