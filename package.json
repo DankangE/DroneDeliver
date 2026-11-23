@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "verify": "tsc --noEmit && vite build",
-    "playtest": "node scripts/playtest.mjs"
+    "playtest": "node scripts/playtest.mjs",
+    "fps": "node scripts/fps.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

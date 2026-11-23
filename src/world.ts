@@ -7,6 +7,7 @@ import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
 import { crateModel } from './graphics/crate';
 import { canvasTex, ink, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
+import { loadQualitySetting, saveQualitySetting, type QualitySetting, type QualityTier } from './graphics/quality';
 import { buildTerrain } from './graphics/terrain';
 
 export class World {
@@ -29,6 +30,8 @@ export class World {
   private camLook = new THREE.Vector3();
   private camInit = false;
   private bob = 0;
+  private qualitySetting: QualitySetting = loadQualitySetting();
+  private qualityTier: QualityTier = 'medium';
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -225,6 +228,17 @@ export class World {
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
     if (this.camera.fov !== 60) { this.camera.fov = 60; this.camera.updateProjectionMatrix(); }
+  }
+
+  /** Player-chosen setting ('auto' picks a tier from measured FPS) and the tier in effect. */
+  get quality(): { setting: QualitySetting; tier: QualityTier } {
+    return { setting: this.qualitySetting, tier: this.qualityTier };
+  }
+
+  setQuality(setting: QualitySetting) {
+    this.qualitySetting = setting;
+    saveQualitySetting(setting);
+    if (setting !== 'auto') this.qualityTier = setting;
   }
 
   resetCamera() { this.camInit = false; }

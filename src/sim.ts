@@ -719,7 +719,10 @@ export function step(s: Sim, input: Input, dt: number) {
 
 // ---------------------------------------------------------------- guidance
 
-export interface Objective { text: string; at: { x: number; z: number; y: number } | null }
+/** Where the player is in the delivery loop; the HUD highlights it in the step strip. */
+export type LoopStep = 'order' | 'pick' | 'check' | 'seal' | 'attach' | 'launch' | 'fly' | 'drop' | 'land' | 'service';
+
+export interface Objective { text: string; step: LoopStep; at: { x: number; z: number; y: number } | null }
 
 export function objective(s: Sim): Objective {
   const p = s.player;
@@ -728,30 +731,30 @@ export function objective(s: Sim): Objective {
   const att = s.drones.find(needsAttention);
   if (att) {
     const what = att.fault === 'gps' ? 'GPS 재보정 (F 길게)' : att.state === 'hold' ? '목표 링에 택배 투하' : '패드에 착륙';
-    return { text: `${droneName(att.idx)}: 콘솔에서 ${what}`, at: p.mode === 'walk' ? consoleAt : null };
+    return { text: `${droneName(att.idx)}: 콘솔에서 ${what}`, step: att.fault === 'gps' ? 'fly' : att.state === 'hold' ? 'drop' : 'land', at: p.mode === 'walk' ? consoleAt : null };
   }
   if (p.carrying?.kind === 'crate') {
     const free = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
-    return free ? { text: `${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, at: padAt(free.idx) } : { text: '빈 드론 없음 — 기다리거나 상자를 선반에 두세요', at: null };
+    return free ? { text: `${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, step: 'attach', at: padAt(free.idx) } : { text: '빈 드론 없음 — 기다리거나 상자를 선반에 두세요', step: 'attach', at: null };
   }
   if (p.carrying?.kind === 'battery') {
     const low = s.drones.filter((d) => d.state === 'pad').sort((a, b) => a.battery - b.battery)[0];
-    return low ? { text: `${droneName(low.idx)} 배터리 교체 (${low.idx + 1}번 패드)`, at: padAt(low.idx) } : { text: '드론이 착륙하면 배터리를 교체하세요', at: null };
+    return low ? { text: `${droneName(low.idx)} 배터리 교체 (${low.idx + 1}번 패드)`, step: 'service', at: padAt(low.idx) } : { text: '드론이 착륙하면 배터리를 교체하세요', step: 'service', at: null };
   }
   const broken = s.drones.find((d) => d.state === 'pad' && d.fault === 'motor');
-  if (broken) return { text: `${droneName(broken.idx)} 로터 수리: ${broken.idx + 1}번 패드에서 E 길게`, at: padAt(broken.idx) };
+  if (broken) return { text: `${droneName(broken.idx)} 로터 수리: ${broken.idx + 1}번 패드에서 E 길게`, step: 'service', at: padAt(broken.idx) };
   const low = s.drones.find((d) => d.state === 'pad' && d.battery < FLIGHT.lowBattery);
-  if (low) return { text: `${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, at: { x: BASE.batteryRack.x, z: BASE.batteryRack.z, y: 2.4 } };
+  if (low) return { text: `${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, step: 'service', at: { x: BASE.batteryRack.x, z: BASE.batteryRack.z, y: 2.4 } };
   const ready = s.drones.find((d) => d.state === 'pad' && d.orderId != null);
-  if (ready) return { text: `콘솔에서 ${droneName(ready.idx)} 출발`, at: p.mode === 'walk' ? consoleAt : null };
+  if (ready) return { text: `콘솔에서 ${droneName(ready.idx)} 출발`, step: 'launch', at: p.mode === 'walk' ? consoleAt : null };
   const freeDrone = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
   const waiting = s.orders.filter((o) => o.status === 'waiting').sort((a, b) => a.deadline - b.deadline)[0];
   if (freeDrone && waiting && waiting.slot != null) {
     const sl = BASE.shelfSlots[waiting.slot];
-    return { text: `화물 선반에서 ${waiting.dest.id} 상자 (${waiting.dest.name}) 들기`, at: { x: sl.x, z: sl.z, y: 2.3 } };
+    return { text: `화물 선반에서 ${waiting.dest.id} 상자 (${waiting.dest.name}) 들기`, step: 'pick', at: { x: sl.x, z: sl.z, y: 2.3 } };
   }
-  if (!waiting) return { text: '다음 주문을 기다리는 중…', at: null };
-  return { text: '드론 비행 중 — 상태 카드를 확인하세요', at: null };
+  if (!waiting) return { text: '다음 주문을 기다리는 중…', step: 'order', at: null };
+  return { text: '드론 비행 중 — 상태 카드를 확인하세요', step: 'fly', at: null };
 }
 
 export function stageById(id: number) { return STAGES.find((st) => st.id === id); }

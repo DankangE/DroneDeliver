@@ -1,4 +1,5 @@
 import './style.css';
+import * as THREE from 'three';
 import { BASE, STAGES } from './config';
 import { initAudio, play, setHum, toggleMute } from './audio';
 import { handleEvent, resetHud, updateHud } from './hud';
@@ -238,6 +239,20 @@ if (debug) {
     get sim() { return sim; },
     log,
     setTimeScale(n: number) { timeScale = n; },
+    world,
+    /** Test shortcut: attach the oldest waiting order straight onto drone `idx` (skips the depot work). */
+    debugLoad(idx = 0) {
+      const d = sim.drones[idx];
+      const o = sim.orders.filter((or) => or.status === 'waiting').sort((a, b) => a.id - b.id)[0];
+      if (!d || !o || d.state !== 'pad' || d.orderId != null) return false;
+      o.status = 'loaded'; o.slot = null; d.orderId = o.id;
+      return true;
+    },
+    renderInfo() {
+      const r = world.renderer;
+      const size = r.getDrawingBufferSize(new THREE.Vector2());
+      return { calls: r.info.render.calls, triangles: r.info.render.triangles, buffer: [size.x, size.y], quality: world.quality };
+    },
     showBriefing,
     begin,
     goto(name: string) {
