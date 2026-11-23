@@ -3,7 +3,8 @@ import { BASE, FLIGHT } from './config';
 import { needsAttention, objective, predictImpact, type Drone, type Sim } from './sim';
 import { buildDepot, buildDestinations } from './graphics/depot';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
-import { KO_FONT, box, canvasTex, finish, ink, surfaces, type Surfaces } from './graphics/materials';
+import { crateModel } from './graphics/crate';
+import { canvasTex, ink, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
 import { buildTerrain } from './graphics/terrain';
 
@@ -78,37 +79,13 @@ export class World {
     this.pipeline.resize(w, h);
   }
 
-  private crate(code: string, color: number) {
-    let model = this.crateModels.get(code);
+  private crate(code: string, color: number, orderId: number) {
+    const variant = orderId % 3;
+    const key = code + '/' + variant;
+    let model = this.crateModels.get(key);
     if (!model) {
-      model = new THREE.Group();
-      const wood = this.materials.wood;
-      box(model, 0.66, 0.67, 0.66, wood, 0, 0, 0);
-      for (const side of [-1, 1]) for (const edge of [-1, 1]) {
-        box(model, 0.70, 0.062, 0.036, wood, 0, edge * 0.319, side * 0.332);
-        box(model, 0.036, 0.062, 0.65, wood, side * 0.332, edge * 0.319, 0);
-      }
-      const band = finish(color, 0.63);
-      box(model, 0.664, 0.075, 0.664, band, 0, 0.155, 0);
-      const sticker = canvasTex(256, 192, g => {
-        g.fillStyle = '#f3efe1'; g.fillRect(0, 0, 256, 192);
-        g.fillStyle = new THREE.Color(color).getStyle(); g.fillRect(0, 0, 256, 33);
-        g.fillStyle = '#1b2528'; g.textAlign = 'center'; g.font = `bold 21px ${KO_FONT}`;
-        g.fillText('하늘길 택배', 128, 25);
-        g.font = `bold 97px ${KO_FONT}`; g.fillText(code, 128, 129);
-        for (let x = 30; x < 226; x += 5) g.fillRect(x, 145, 1 + (x * 7 % 4), 28);
-      });
-      const paper = new THREE.MeshStandardMaterial({ map: sticker, roughness: 0.86 });
-      const decal = new THREE.PlaneGeometry(0.43, 0.323);
-      for (let side = 0; side < 4; side++) {
-        const a = side * Math.PI / 2;
-        const label = new THREE.Mesh(decal, paper);
-        label.rotation.y = a;
-        label.position.set(Math.sin(a) * 0.334, -0.018, Math.cos(a) * 0.334);
-        label.receiveShadow = true;
-        model.add(label);
-      }
-      this.crateModels.set(code, model);
+      model = crateModel(code, color, variant, this.materials);
+      this.crateModels.set(key, model);
     }
     return model.clone();
   }
@@ -130,10 +107,10 @@ export class World {
     this.heldCrate.visible = carry?.kind === 'crate';
     if (carry?.kind === 'crate') {
       const o = s.orders.find((or) => or.id === carry.orderId);
-      if (o && this.heldCrate.name !== o.dest.id) {
+      if (o && this.heldCrate.name !== o.dest.id + '/' + o.id) {
         this.heldCrate.clear();
-        this.heldCrate.add(this.crate(o.dest.id, o.dest.color));
-        this.heldCrate.name = o.dest.id;
+        this.heldCrate.add(this.crate(o.dest.id, o.dest.color, o.id));
+        this.heldCrate.name = o.dest.id + '/' + o.id;
       }
     }
 
@@ -195,7 +172,7 @@ export class World {
       let entry = this.crates.get(o.id);
       if (pos) {
         if (!entry) {
-          entry = { mesh: this.crate(o.dest.id, o.dest.color), ttl: null };
+          entry = { mesh: this.crate(o.dest.id, o.dest.color, o.id), ttl: null };
           this.scene.add(entry.mesh);
           this.crates.set(o.id, entry);
         }
