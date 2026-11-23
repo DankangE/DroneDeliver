@@ -1,5 +1,5 @@
 import { BASE, DESTINATIONS, FLIGHT, SCORE } from './config';
-import { comboMult, consoleAction, droneName, gradeFor, needsAttention, objective, orderById, predictImpact, promptFor, stateLabel, type Sim, type SimEvent } from './sim';
+import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, predictImpact, promptFor, stateLabel, type Sim, type SimEvent } from './sim';
 
 const DRONE_CSS = ['#ff8a3d', '#3dd6ff'];
 const $ = (id: string) => document.getElementById(id)!;
@@ -78,18 +78,18 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
   if (slowTimer > 0) return;
   slowTimer = 1 / 12;
 
-  text('stage-name', `Stage ${s.stage.id} · ${s.stage.name}`);
+  text('stage-name', `스테이지 ${s.stage.id} · ${s.stage.name}`);
   text('score', String(s.score));
   text('target', String(s.stage.target));
   ($('score-fill') as HTMLElement).style.width = `${Math.min(100, (s.score / s.stage.target) * 100)}%`;
   text('clock', `⏱ ${fmtTime(s.timeLeft)}`);
   cls('clock', 'urgent', s.timeLeft < 60);
   const mult = comboMult(s.streak);
-  text('combo', s.streak > 0 ? `COMBO ${s.streak} · x${mult.toFixed(2)}` : '');
+  text('combo', s.streak > 0 ? `콤보 ${s.streak} · x${mult.toFixed(2)}` : '');
   const ws = Math.hypot(s.wind.x, s.wind.z);
   const arrows = ['↓', '↘', '→', '↗', '↑', '↖', '←', '↙'];
   const ang = Math.atan2(s.wind.x, s.wind.z);
-  text('wind', `WIND ${arrows[((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8]} ${ws.toFixed(1)} m/s`);
+  text('wind', `바람 ${arrows[((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8]} ${ws.toFixed(1)} m/s`);
 
   html('drones', s.drones.map((d) => {
     const o = orderById(s, d.orderId);
@@ -97,28 +97,28 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
     const meter = d.battery < FLIGHT.criticalBattery ? 'crit' : d.battery < FLIGHT.lowBattery ? 'low' : '';
     const pad = BASE.pads[d.idx];
     let sub = '';
-    if (d.fault === 'gps' && d.state !== 'pad') sub = 'GPS lost — hold F at console';
-    else if (d.fault === 'motor') sub = `Rotor fault — hold E at Pad ${d.idx + 1}`;
-    else if (d.state === 'down') sub = `Recovery in ${Math.ceil(d.downTimer)} s`;
+    if (d.fault === 'gps' && d.state !== 'pad') sub = 'GPS 끊김 — 콘솔에서 F 길게';
+    else if (d.fault === 'motor') sub = `로터 고장 — ${d.idx + 1}번 패드에서 E 길게`;
+    else if (d.state === 'down') sub = `회수까지 ${Math.ceil(d.downTimer)}초`;
     else if (o) sub = `→ ${o.dest.id} ${o.dest.name} · ${Math.round(Math.hypot(o.dest.x - d.pos.x, o.dest.z - d.pos.z))} m`;
-    else if (d.state === 'pad') sub = d.battery < FLIGHT.lowBattery ? 'Swap battery before launch' : 'Waiting for cargo';
-    else sub = `→ Pad ${d.idx + 1} · ${Math.round(Math.hypot(pad.x - d.pos.x, pad.z - d.pos.z))} m`;
+    else if (d.state === 'pad') sub = d.battery < FLIGHT.lowBattery ? '출발 전 배터리 교체' : '화물 대기 중';
+    else sub = `→ ${d.idx + 1}번 패드 · ${Math.round(Math.hypot(pad.x - d.pos.x, pad.z - d.pos.z))} m`;
     const classes = ['dcard', d.fault ? 'fault' : needsAttention(d) ? 'attn' : '', inConsole && s.selected === d.idx ? 'sel' : ''].join(' ');
     return `<div class="${classes}" style="--c:${DRONE_CSS[d.idx]}">
       <div class="dhead"><span>${droneName(d.idx)}</span><span class="st">${stateLabel(d)}</span></div>
-      <div class="drow">BAT<div class="meter ${meter}"><i style="width:${bat}%"></i></div>${bat}%</div>
-      <div class="drow">ALT ${d.pos.y.toFixed(0).padStart(2, ' ')} m · ${Math.hypot(d.vel.x, d.vel.z).toFixed(0)} m/s</div>
+      <div class="drow">배터리<div class="meter ${meter}"><i style="width:${bat}%"></i></div>${bat}%</div>
+      <div class="drow">고도 ${d.pos.y.toFixed(0).padStart(2, ' ')} m · ${Math.hypot(d.vel.x, d.vel.z).toFixed(0)} m/s</div>
       <div class="dsub">${sub}</div></div>`;
   }).join(''));
 
   const active = s.orders.filter((o) => ['waiting', 'carried', 'loaded', 'flying'].includes(o.status));
-  html('orders', active.length === 0 ? '<div class="empty">No open orders</div>' : active.map((o) => {
+  html('orders', active.length === 0 ? '<div class="empty">진행 중인 주문 없음</div>' : active.map((o) => {
     const left = o.deadline - s.time;
     const flying = o.status === 'flying';
     const d = s.drones.find((dr) => dr.orderId === o.id);
-    const st = o.status === 'waiting' ? `SHELF ${String.fromCharCode(65 + (o.slot ?? 0))}` : o.status === 'carried' ? 'IN HAND' : o.status === 'loaded' ? `ON ${droneName(d?.idx ?? 0).toUpperCase()}` : 'IN FLIGHT';
+    const st = o.status === 'waiting' ? `선반 ${String.fromCharCode(65 + (o.slot ?? 0))}` : o.status === 'carried' ? '운반 중' : o.status === 'loaded' ? `${droneName(d?.idx ?? 0)} 적재` : '비행 중';
     const pct = flying ? 100 : Math.max(0, (left / s.stage.orderDeadline) * 100);
-    const bonus = !flying && s.time - o.spawnedAt < s.stage.orderDeadline * 0.75 ? ' · +ON TIME' : '';
+    const bonus = !flying && s.time - o.spawnedAt < s.stage.orderDeadline * 0.75 ? ' · 정시 보너스' : '';
     return `<div class="order" style="--c:${hex(o.dest.color)}">
       <div class="code">${o.dest.id}</div><div class="name">${o.dest.name}</div>
       <div class="tm ${!flying && left < 25 ? 'urgent' : ''}">${flying ? '✈' : fmtTime(left)}</div>
@@ -127,11 +127,11 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
 
   const carry = s.player.carrying;
   const co = carry?.kind === 'crate' ? orderById(s, carry.orderId) : undefined;
-  text('carry', carry ? (carry.kind === 'battery' ? 'CARRYING · Charged battery' : `CARRYING · Crate ${co?.dest.id} → ${co?.dest.name}`) : '');
+  text('carry', carry ? (carry.kind === 'battery' ? '운반 중 · 충전된 배터리' : `운반 중 · ${co?.dest.id} 상자 → ${co?.dest.name}`) : '');
   text('objective-text', objective(s).text);
   html('keys', inConsole
-    ? '<kbd>Space</kbd> action · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> steer<br><kbd>F</kbd> hold: fix GPS · <kbd>1</kbd><kbd>2</kbd>/<kbd>Tab</kbd> drone · <kbd>Q</kbd> leave'
-    : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · mouse / <kbd>←</kbd><kbd>→</kbd> look<br><kbd>E</kbd> interact · <kbd>P</kbd> pause · <kbd>M</kbd> mute');
+    ? '<kbd>Space</kbd> 실행 · <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 조종<br><kbd>F</kbd> 길게: GPS 수리 · <kbd>1</kbd><kbd>2</kbd>/<kbd>Tab</kbd> 드론 · <kbd>Q</kbd> 나가기'
+    : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · 마우스 / <kbd>←</kbd><kbd>→</kbd> 시점<br><kbd>E</kbd> 상호작용 · <kbd>P</kbd> 일시 정지 · <kbd>M</kbd> 음소거');
 }
 
 function updateConsole(s: Sim) {
@@ -142,7 +142,7 @@ function updateConsole(s: Sim) {
   const tx = dest ? dest.x : pad.x;
   const tz = dest ? dest.z : pad.z;
   const dist = Math.hypot(tx - d.pos.x, tz - d.pos.z);
-  text('feed-title', `${droneName(d.idx).toUpperCase()} · ${stateLabel(d)} · ${dest ? `${dest.id} ${dest.name}` : `PAD ${d.idx + 1}`} ${Math.round(dist)} m · ALT ${d.pos.y.toFixed(0)} m · BAT ${Math.round(d.battery)}%`);
+  text('feed-title', `${droneName(d.idx)} · ${stateLabel(d)} · ${dest ? `${dest.id} ${dest.name}` : `${d.idx + 1}번 패드`} ${Math.round(dist)} m · 고도 ${d.pos.y.toFixed(0)} m · 배터리 ${Math.round(d.battery)}%`);
   html('drone-tabs', s.drones.map((dr) => `<span class="tab ${dr.idx === s.selected ? 'sel' : ''} ${needsAttention(dr) ? 'attn' : ''}" style="--c:${DRONE_CSS[dr.idx]}">${dr.idx + 1} · ${stateLabel(dr)}</span>`).join(''));
   const a = consoleAction(s);
   text('action-label', a.label);
@@ -155,11 +155,11 @@ function updateConsole(s: Sim) {
   if (d.state === 'hold' && dest) {
     const p = predictImpact(s, d.pos, d.vel);
     const off = Math.hypot(p.x - dest.x, p.z - dest.z);
-    guide = `Magenta ring = predicted impact. Steer it onto the target, then drop.<br>Impact offset ${off.toFixed(1)} m → ${gradeFor(off)}  (perfect ≤ ${SCORE.perfectRadius} m)`;
+    guide = `분홍 링 = 예상 낙하 지점. 목표 위로 맞춘 뒤 투하하세요.<br>오차 ${off.toFixed(1)} m → ${GRADE_LABEL[gradeFor(off)]}  (완벽 ≤ ${SCORE.perfectRadius} m)`;
   } else if (d.state === 'approach') {
     const off = Math.hypot(pad.x - d.pos.x, pad.z - d.pos.z);
-    guide = `Pad offset ${off.toFixed(1)} m — keep under ${FLIGHT.hardLandingOffset} m to avoid a hard landing.<br>Steer with WASD, then Space.`;
-  } else if (gps) guide = 'Hold F to recalibrate. The drone drifts with the wind meanwhile.';
+    guide = `패드 오차 ${off.toFixed(1)} m — 경착륙을 피하려면 ${FLIGHT.hardLandingOffset} m 이내로 맞추세요.<br>WASD로 조종한 뒤 Space.`;
+  } else if (gps) guide = 'F를 길게 눌러 재보정하세요. 그동안 드론은 바람에 밀립니다.';
   html('guide', guide);
   drawMinimap(s);
 }
@@ -179,7 +179,7 @@ function drawMinimap(s: Sim) {
     g.fillStyle = hex(d.color);
     g.globalAlpha = busy.has(d.id) ? 1 : 0.35;
     g.beginPath(); g.arc(X(d.x), Z(d.z), 5, 0, Math.PI * 2); g.fill();
-    g.font = 'bold 10px monospace';
+    g.font = 'bold 10px ui-monospace, Menlo, "Apple SD Gothic Neo", "Malgun Gothic", monospace';
     g.fillText(d.id, X(d.x) + 7, Z(d.z) + 4);
   }
   g.globalAlpha = 1;
@@ -202,8 +202,8 @@ function drawMinimap(s: Sim) {
   const ws = Math.hypot(s.wind.x, s.wind.z);
   g.strokeStyle = '#cfe3f0';
   g.fillStyle = '#cfe3f0';
-  g.font = '10px monospace';
-  g.fillText(`WIND ${ws.toFixed(1)}`, 8, W - 10);
+  g.font = '10px "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+  g.fillText(`바람 ${ws.toFixed(1)}`, 8, W - 10);
   const ax = 66, ay = W - 14, len = 6 + ws * 4;
   g.beginPath(); g.moveTo(ax, ay); g.lineTo(ax + (s.wind.x / (ws || 1)) * len, ay + (s.wind.z / (ws || 1)) * len); g.stroke();
   g.fillText('N', W / 2 - 3, 12);

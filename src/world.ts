@@ -27,6 +27,8 @@ function speckle(g: CanvasRenderingContext2D, w: number, h: number, base: string
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
+const KO_FONT = "'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif";
+
 function labelTex(text: string, sub: string, color: number) {
   return canvasTex(512, 160, (g) => {
     g.fillStyle = 'rgba(10,16,24,0.85)';
@@ -36,11 +38,11 @@ function labelTex(text: string, sub: string, color: number) {
     g.fillStyle = hex(color);
     g.fillRect(4, 4, 18, 152);
     g.fillStyle = '#fff';
-    g.font = 'bold 64px system-ui, sans-serif';
-    g.fillText(text, 44, 76);
-    g.font = '40px system-ui, sans-serif';
+    g.font = `bold 64px ${KO_FONT}`;
+    g.fillText(text, 44, 76, 450);
+    g.font = `40px ${KO_FONT}`;
     g.fillStyle = '#cfe3f0';
-    g.fillText(sub, 44, 132);
+    g.fillText(sub, 44, 132, 450);
   });
 }
 
@@ -53,7 +55,7 @@ function crateTex(code: string, color: number) {
     g.fillStyle = hex(color);
     g.fillRect(18, 34, 92, 60);
     g.fillStyle = '#111';
-    g.font = 'bold 44px system-ui, sans-serif';
+    g.font = `bold 44px ${KO_FONT}`;
     g.textAlign = 'center';
     g.fillText(code, 64, 80);
   });
@@ -278,7 +280,7 @@ export class World {
     inner.position.set(0, 4.5, -1);
     this.scene.add(inner);
 
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.2), new THREE.MeshBasicMaterial({ map: labelTex('SKYHOOK DEPOT', 'Drone delivery · Bay 01', 0xffd23f) }));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.2), new THREE.MeshBasicMaterial({ map: labelTex('하늘길 택배', '드론 배송 · 1번 기지', 0xffd23f) }));
     sign.position.set(0, H - 0.75, h.maxZ + 0.22);
     this.scene.add(sign);
 
@@ -288,7 +290,7 @@ export class World {
     this.box(1.6, 0.08, 10, plate, -11.1, 0.62, -1.2);
     this.box(1.6, 0.08, 10, plate, -11.1, 1.9, -1.2);
     for (const z of [-6.2, -3.75, -1.25, 1.25, 3.75]) this.box(1.6, 2.6, 0.12, shelfMat, -11.1, 1.3, z);
-    const shelfSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('CARGO', 'Outgoing orders', 0x4fc3f7) }));
+    const shelfSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('화물', '출고 대기 주문', 0x4fc3f7) }));
     shelfSign.position.set(-11.75, 3.3, -1.2);
     shelfSign.rotation.y = Math.PI / 2;
     this.scene.add(shelfSign);
@@ -307,7 +309,7 @@ export class World {
       b.rotation.y = Math.PI / 2;
       this.scene.add(b);
     }
-    const rackSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('CHARGING', 'Fresh batteries', 0x48ff8b) }));
+    const rackSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('충전', '충전된 배터리', 0x48ff8b) }));
     rackSign.position.set(11.75, 3.2, BASE.batteryRack.z);
     rackSign.rotation.y = -Math.PI / 2;
     this.scene.add(rackSign);
@@ -318,7 +320,7 @@ export class World {
       g.fillStyle = '#071a24'; g.fillRect(0, 0, 256, 160);
       g.strokeStyle = '#2ee6a6'; g.lineWidth = 2;
       for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(128, 80, 12 + i * 12, 0, Math.PI * 2); g.stroke(); }
-      g.fillStyle = '#2ee6a6'; g.font = 'bold 22px monospace'; g.fillText('FLIGHT OPS', 8, 24);
+      g.fillStyle = '#2ee6a6'; g.font = `bold 22px ${KO_FONT}`; g.fillText('비행 관제', 8, 26);
     }) });
     for (const [x, ry] of [[-1.8, 0.25], [0, 0], [1.8, -0.25]] as const) {
       const mon = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1), screen);
@@ -327,7 +329,7 @@ export class World {
       this.scene.add(mon);
       this.box(1.7, 1.1, 0.06, trim, x, 1.6, -8.8).rotation.y = ry;
     }
-    const opsSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('CONTROL', 'Launch · Drop · Land', 0xff8a3d) }));
+    const opsSign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.75), new THREE.MeshBasicMaterial({ map: labelTex('관제', '출발 · 투하 · 착륙', 0xff8a3d) }));
     opsSign.position.set(0, 3.1, -8.75);
     this.scene.add(opsSign);
 
@@ -342,7 +344,7 @@ export class World {
       const pad = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.5, 0.1, 40), [new THREE.MeshLambertMaterial({ color: 0x2b3036 }), new THREE.MeshLambertMaterial({ map: padTex }), new THREE.MeshLambertMaterial({ color: 0x2b3036 })]);
       pad.position.set(p.x, 0.05, p.z);
       this.scene.add(pad);
-      const lbl = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.6), new THREE.MeshBasicMaterial({ map: labelTex(`PAD ${i + 1}`, 'Drone ' + (i + 1), DRONE_COLORS[i]) }));
+      const lbl = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.6), new THREE.MeshBasicMaterial({ map: labelTex(`${i + 1}번 패드`, `${i + 1}번 드론`, DRONE_COLORS[i]) }));
       lbl.position.set(p.x, 1.6, p.z + 3.2);
       this.scene.add(lbl);
       this.box(0.1, 1.3, 0.1, trim, p.x, 0.65, p.z + 3.2);

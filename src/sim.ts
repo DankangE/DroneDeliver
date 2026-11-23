@@ -123,7 +123,8 @@ export function createSim(stageId: number): Sim {
 const emit = (s: Sim, e: SimEvent) => s.events.push(e);
 const note = (s: Sim, text: string, level: 'info' | 'good' | 'warn' | 'bad' = 'info') => emit(s, { type: 'note', text, level });
 const sfx = (s: Sim, name: SfxName) => emit(s, { type: 'sfx', name });
-export const droneName = (i: number) => `Drone ${i + 1}`;
+export const droneName = (i: number) => `${i + 1}번 드론`;
+export const GRADE_LABEL: Record<Grade, string> = { PERFECT: '완벽', GOOD: '우수', OK: '양호', MISS: '빗나감' };
 export const orderById = (s: Sim, id: number | null) => (id == null ? undefined : s.orders.find((o) => o.id === id));
 const isFlying = (d: Drone) => d.state !== 'pad' && d.state !== 'down';
 export const comboMult = (streak: number) => Math.min(1 + streak * SCORE.comboStep, SCORE.comboMax);
@@ -139,7 +140,7 @@ function spawnOrder(s: Sim) {
   s.lastDest = dest.id;
   const order: Order = { id: s.nextOrderId++, dest, spawnedAt: s.time, deadline: s.time + s.stage.orderDeadline, status: 'waiting', slot, launchedAt: null };
   s.orders.push(order);
-  note(s, `New order #${order.id}: ${dest.id} ${dest.name}`, 'info');
+  note(s, `새 주문 #${order.id}: ${dest.id} ${dest.name}`, 'info');
   sfx(s, 'order');
 }
 
@@ -162,7 +163,7 @@ function updateOrders(s: Sim) {
       s.score = Math.max(0, s.score - SCORE.expiredPenalty);
       s.streak = 0;
       s.stats.expired++;
-      note(s, `Order #${o.id} to ${o.dest.name} expired (-${SCORE.expiredPenalty})`, 'bad');
+      note(s, `주문 #${o.id} (${o.dest.name}) 기한 초과 (-${SCORE.expiredPenalty})`, 'bad');
       sfx(s, 'miss');
     }
   }
@@ -217,45 +218,45 @@ export function promptFor(s: Sim, t: Target | null): Prompt | null {
   switch (t.kind) {
     case 'shelf': {
       const o = s.orders.find((or) => or.status === 'waiting' && or.slot === t.slot);
-      if (o) return carry ? { text: 'Hands full', hold: false, enabled: false } : { text: `[E] Pick up crate ${o.dest.id} — ${o.dest.name}`, hold: false, enabled: true };
-      if (carry?.kind === 'crate') return { text: '[E] Put crate back on shelf', hold: false, enabled: true };
+      if (o) return carry ? { text: '손이 꽉 찼습니다', hold: false, enabled: false } : { text: `[E] ${o.dest.id} 상자 들기 — ${o.dest.name}`, hold: false, enabled: true };
+      if (carry?.kind === 'crate') return { text: '[E] 선반에 상자 내려놓기', hold: false, enabled: true };
       return null;
     }
     case 'rack':
-      if (carry?.kind === 'battery') return { text: '[E] Return battery to rack', hold: false, enabled: true };
-      if (carry) return { text: 'Hands full', hold: false, enabled: false };
-      return { text: '[E] Take a charged battery', hold: false, enabled: true };
+      if (carry?.kind === 'battery') return { text: '[E] 배터리 거치대에 반납', hold: false, enabled: true };
+      if (carry) return { text: '손이 꽉 찼습니다', hold: false, enabled: false };
+      return { text: '[E] 충전된 배터리 꺼내기', hold: false, enabled: true };
     case 'console':
-      if (carry) return { text: 'Put down what you carry first', hold: false, enabled: false };
-      return { text: '[E] Use control console', hold: false, enabled: true };
+      if (carry) return { text: '들고 있는 물건부터 내려놓으세요', hold: false, enabled: false };
+      return { text: '[E] 관제 콘솔 앉기', hold: false, enabled: true };
     case 'pad': {
       const d = s.drones[t.idx];
-      if (!d) return { text: `Pad ${t.idx + 1} offline this shift`, hold: false, enabled: false };
-      if (d.state !== 'pad') return { text: `${droneName(d.idx)} is ${stateLabel(d)}`, hold: false, enabled: false };
-      if (carry?.kind === 'battery') return { text: `[E] Swap battery (${Math.round(d.battery)}%)`, hold: false, enabled: true };
-      if (d.fault === 'motor') return { text: `[Hold E] Repair rotor on ${droneName(d.idx)}`, hold: true, enabled: true };
+      if (!d) return { text: `${t.idx + 1}번 패드는 이번 근무에 쓰지 않습니다`, hold: false, enabled: false };
+      if (d.state !== 'pad') return { text: `${droneName(d.idx)}: ${stateLabel(d)}`, hold: false, enabled: false };
+      if (carry?.kind === 'battery') return { text: `[E] 배터리 교체 (${Math.round(d.battery)}%)`, hold: false, enabled: true };
+      if (d.fault === 'motor') return { text: `[E 길게] ${droneName(d.idx)} 로터 수리`, hold: true, enabled: true };
       if (carry?.kind === 'crate') {
-        if (d.orderId != null) return { text: `${droneName(d.idx)} already loaded`, hold: false, enabled: false };
+        if (d.orderId != null) return { text: `${droneName(d.idx)}에 이미 화물이 있습니다`, hold: false, enabled: false };
         const o = orderById(s, carry.orderId)!;
-        return { text: `[E] Attach crate ${o.dest.id} to ${droneName(d.idx)}`, hold: false, enabled: true };
+        return { text: `[E] ${droneName(d.idx)}에 ${o.dest.id} 상자 연결`, hold: false, enabled: true };
       }
-      if (d.orderId != null) return { text: `[E] Unload crate from ${droneName(d.idx)}`, hold: false, enabled: true };
-      return { text: `${droneName(d.idx)} · battery ${Math.round(d.battery)}%`, hold: false, enabled: false };
+      if (d.orderId != null) return { text: `[E] ${droneName(d.idx)}에서 상자 내리기`, hold: false, enabled: true };
+      return { text: `${droneName(d.idx)} · 배터리 ${Math.round(d.battery)}%`, hold: false, enabled: false };
     }
   }
 }
 
 export function stateLabel(d: Drone): string {
-  if (d.fault === 'gps' && isFlying(d)) return 'GPS FAULT';
+  if (d.fault === 'gps' && isFlying(d)) return 'GPS 장애';
   switch (d.state) {
-    case 'pad': return d.fault === 'motor' ? 'ROTOR FAULT' : d.orderId != null ? 'LOADED' : 'ON PAD';
-    case 'takeoff': return 'TAKEOFF';
-    case 'outbound': return 'OUTBOUND';
-    case 'hold': return 'AWAITING DROP';
-    case 'returning': return 'RETURNING';
-    case 'approach': return 'AWAITING LANDING';
-    case 'landing': return 'LANDING';
-    case 'down': return 'DOWN';
+    case 'pad': return d.fault === 'motor' ? '로터 고장' : d.orderId != null ? '적재 완료' : '패드 대기';
+    case 'takeoff': return '이륙';
+    case 'outbound': return '배송 중';
+    case 'hold': return '투하 대기';
+    case 'returning': return '복귀 중';
+    case 'approach': return '착륙 대기';
+    case 'landing': return '착륙 중';
+    case 'down': return '추락';
   }
 }
 
@@ -296,12 +297,12 @@ export function interact(s: Sim) {
       const d = s.drones[t.idx];
       if (p.carrying?.kind === 'battery') {
         d.battery = 100; d.warnedLow = false; d.warnedCritical = false; p.carrying = null; s.stats.swaps++;
-        note(s, `${droneName(d.idx)} battery swapped — 100%`, 'good'); sfx(s, 'swap');
+        note(s, `${droneName(d.idx)} 배터리 교체 — 100%`, 'good'); sfx(s, 'swap');
         emit(s, { type: 'log', kind: 'swap', drone: d.idx });
       } else if (p.carrying?.kind === 'crate') {
         const o = orderById(s, p.carrying.orderId)!;
         o.status = 'loaded'; d.orderId = o.id; p.carrying = null;
-        note(s, `Crate ${o.dest.id} attached to ${droneName(d.idx)}. Launch from the console.`, 'info'); sfx(s, 'attach');
+        note(s, `${o.dest.id} 상자를 ${droneName(d.idx)}에 연결했습니다. 콘솔에서 출발시키세요.`, 'info'); sfx(s, 'attach');
         emit(s, { type: 'log', kind: 'attach', drone: d.idx, value: o.id });
       } else if (d.orderId != null) {
         const o = orderById(s, d.orderId)!;
@@ -338,16 +339,16 @@ export interface ConsoleAction { label: string; enabled: boolean; reason?: strin
 
 export function consoleAction(s: Sim): ConsoleAction {
   const d = s.drones[s.selected];
-  if (d.fault === 'gps' && isFlying(d)) return { label: '[Hold F] Recalibrate GPS', enabled: false, reason: 'Autopilot paused' };
+  if (d.fault === 'gps' && isFlying(d)) return { label: '[F 길게] GPS 재보정', enabled: false, reason: '자동 비행 일시 정지' };
   switch (d.state) {
     case 'pad':
-      if (d.fault === 'motor') return { label: 'Launch', enabled: false, reason: 'Rotor fault — repair at the pad' };
-      if (d.orderId == null) return { label: 'Launch', enabled: false, reason: 'No cargo attached' };
-      if (d.battery < FLIGHT.lowBattery) return { label: 'Launch', enabled: false, reason: `Battery ${Math.round(d.battery)}% — swap at the pad` };
-      return { label: '[Space] Launch', enabled: true };
-    case 'hold': return { label: '[Space] Drop package', enabled: true };
-    case 'approach': return { label: '[Space] Begin landing', enabled: true };
-    case 'down': return { label: 'Recovery crew en route', enabled: false };
+      if (d.fault === 'motor') return { label: '출발', enabled: false, reason: '로터 고장 — 패드에서 수리' };
+      if (d.orderId == null) return { label: '출발', enabled: false, reason: '연결된 화물 없음' };
+      if (d.battery < FLIGHT.lowBattery) return { label: '출발', enabled: false, reason: `배터리 ${Math.round(d.battery)}% — 패드에서 교체` };
+      return { label: '[Space] 출발', enabled: true };
+    case 'hold': return { label: '[Space] 택배 투하', enabled: true };
+    case 'approach': return { label: '[Space] 착륙 시작', enabled: true };
+    case 'down': return { label: '회수반 출동 중', enabled: false };
     default: return { label: stateLabel(d), enabled: false };
   }
 }
@@ -373,7 +374,7 @@ function launch(s: Sim, d: Drone) {
   const scripted = s.stage.id === 1 && d.flights === 2;
   const roll = s.stage.id === 1 && d.flights === 1 ? 1 : Math.random();
   d.faultAt = scripted || roll < s.stage.faultChance ? s.time + 6 + Math.random() * 10 : null;
-  note(s, `${droneName(d.idx)} launched to ${o.dest.name}`, 'info');
+  note(s, `${droneName(d.idx)} 출발 → ${o.dest.name}`, 'info');
   sfx(s, 'launch');
   emit(s, { type: 'log', kind: 'launch', drone: d.idx, value: o.id });
 }
@@ -436,16 +437,16 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
   if (isFlying(d)) {
     const drain = d.state === 'hold' || d.state === 'approach' || d.fault === 'gps' ? FLIGHT.drainHover : FLIGHT.drainFlying;
     d.battery = Math.max(0, d.battery - drain * dt);
-    if (!d.warnedLow && d.battery < FLIGHT.lowBattery) { d.warnedLow = true; note(s, `${droneName(d.idx)} battery low (${Math.round(d.battery)}%) — swap after landing`, 'warn'); }
+    if (!d.warnedLow && d.battery < FLIGHT.lowBattery) { d.warnedLow = true; note(s, `${droneName(d.idx)} 배터리 부족 (${Math.round(d.battery)}%) — 착륙 후 교체`, 'warn'); }
     if (!d.warnedCritical && d.battery < FLIGHT.criticalBattery) {
       d.warnedCritical = true;
-      emit(s, { type: 'banner', text: `${droneName(d.idx)} BATTERY CRITICAL`, level: 'bad' }); sfx(s, 'alarm');
+      emit(s, { type: 'banner', text: `${droneName(d.idx)} 배터리 위험`, level: 'bad' }); sfx(s, 'alarm');
     }
     if (d.battery <= 0) { crash(s, d); return; }
     if (d.faultAt != null && s.time >= d.faultAt && (d.state === 'outbound' || d.state === 'returning')) {
       d.faultAt = null; d.fault = 'gps'; d.fixProgress = 0;
-      emit(s, { type: 'banner', text: `${droneName(d.idx)} GPS FAULT — hold F at console`, level: 'bad' }); sfx(s, 'alarm');
-      note(s, `${droneName(d.idx)} lost GPS lock. Autopilot paused.`, 'bad');
+      emit(s, { type: 'banner', text: `${droneName(d.idx)} GPS 장애 — 콘솔에서 F 길게`, level: 'bad' }); sfx(s, 'alarm');
+      note(s, `${droneName(d.idx)} GPS 신호 끊김. 자동 비행 일시 정지.`, 'bad');
       emit(s, { type: 'log', kind: 'fault-gps', drone: d.idx });
     }
   }
@@ -456,7 +457,7 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
       d.fixProgress += dt;
       if (d.fixProgress >= FLIGHT.gpsFixTime) {
         d.fault = null; d.fixProgress = 0; s.stats.faultsFixed++;
-        note(s, `${droneName(d.idx)} GPS recalibrated. Autopilot resumed.`, 'good'); sfx(s, 'fixed');
+        note(s, `${droneName(d.idx)} GPS 재보정 완료. 자동 비행 재개.`, 'good'); sfx(s, 'fixed');
         emit(s, { type: 'log', kind: 'fixed-gps', drone: d.idx });
       }
     } else d.fixProgress = Math.max(0, d.fixProgress - dt * 0.5);
@@ -477,7 +478,7 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
       moveToward(d, order.dest.x, legAltitude(dist), order.dest.z, dt);
       if (dist < 1.5 && Math.abs(d.pos.y - FLIGHT.holdAlt) < 1) {
         d.state = 'hold';
-        emit(s, { type: 'banner', text: `${droneName(d.idx)} over ${order.dest.name} — drop at console`, level: 'warn' });
+        emit(s, { type: 'banner', text: `${droneName(d.idx)} ${order.dest.name} 상공 — 콘솔에서 투하`, level: 'warn' });
         sfx(s, 'alarm');
         emit(s, { type: 'log', kind: 'arrive', drone: d.idx });
       }
@@ -491,7 +492,7 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
       moveToward(d, pad.x, legAltitude(dist), pad.z, dt);
       if (dist < 1.5 && Math.abs(d.pos.y - FLIGHT.holdAlt) < 1) {
         d.state = 'approach';
-        emit(s, { type: 'banner', text: `${droneName(d.idx)} back over Pad ${d.idx + 1} — land at console`, level: 'warn' });
+        emit(s, { type: 'banner', text: `${droneName(d.idx)} ${d.idx + 1}번 패드 상공 복귀 — 콘솔에서 착륙`, level: 'warn' });
         sfx(s, 'alarm');
         emit(s, { type: 'log', kind: 'home', drone: d.idx });
       }
@@ -516,7 +517,7 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
       if (d.pos.y > 0) { d.vel.y -= 9.8 * dt; d.pos.x += d.vel.x * dt; d.pos.z += d.vel.z * dt; d.pos.y = Math.max(0, d.pos.y + d.vel.y * dt); }
       if (d.downTimer <= 0) {
         d.state = 'pad'; d.fault = 'motor'; d.battery = 5; d.warnedLow = true; d.warnedCritical = true;
-        note(s, `${droneName(d.idx)} recovered to Pad ${d.idx + 1}. Needs battery and rotor repair.`, 'warn');
+        note(s, `${droneName(d.idx)} ${d.idx + 1}번 패드로 회수됨. 배터리 교체와 로터 수리가 필요합니다.`, 'warn');
       }
       break;
   }
@@ -532,16 +533,16 @@ function touchDown(s: Sim, d: Drone) {
   sfx(s, 'land');
   if (d.hardLanding) {
     d.fault = 'motor';
-    emit(s, { type: 'banner', text: `HARD LANDING — ${droneName(d.idx)} rotor damaged`, level: 'bad' });
-    note(s, `Hard landing. Repair ${droneName(d.idx)} at Pad ${d.idx + 1} (hold E).`, 'bad'); sfx(s, 'alarm');
+    emit(s, { type: 'banner', text: `경착륙 — ${droneName(d.idx)} 로터 손상`, level: 'bad' });
+    note(s, `경착륙. ${d.idx + 1}번 패드에서 ${droneName(d.idx)}을 수리하세요 (E 길게).`, 'bad'); sfx(s, 'alarm');
     emit(s, { type: 'log', kind: 'fault-motor', drone: d.idx });
   } else if (Math.random() < s.stage.faultChance * 0.6 && d.flights > 1) {
     d.fault = 'motor';
-    emit(s, { type: 'banner', text: `${droneName(d.idx)} ROTOR VIBRATION — repair at pad`, level: 'bad' });
-    note(s, `Rotor vibration on ${droneName(d.idx)}. Hold E at Pad ${d.idx + 1} to repair.`, 'bad'); sfx(s, 'alarm');
+    emit(s, { type: 'banner', text: `${droneName(d.idx)} 로터 진동 — 패드에서 수리`, level: 'bad' });
+    note(s, `${droneName(d.idx)} 로터 진동. ${d.idx + 1}번 패드에서 E를 길게 눌러 수리하세요.`, 'bad'); sfx(s, 'alarm');
     emit(s, { type: 'log', kind: 'fault-motor', drone: d.idx });
   } else {
-    note(s, `${droneName(d.idx)} landed on Pad ${d.idx + 1} (${trip.toFixed(1)} s trip)`, 'good');
+    note(s, `${droneName(d.idx)} ${d.idx + 1}번 패드 착륙 (왕복 ${trip.toFixed(1)}초)`, 'good');
   }
 }
 
@@ -554,7 +555,7 @@ function crash(s: Sim, d: Drone) {
   s.score = Math.max(0, s.score - SCORE.crashPenalty);
   s.streak = 0;
   s.stats.crashes++;
-  emit(s, { type: 'banner', text: `${droneName(d.idx)} LOST POWER (-${SCORE.crashPenalty})`, level: 'bad' });
+  emit(s, { type: 'banner', text: `${droneName(d.idx)} 전원 상실 (-${SCORE.crashPenalty})`, level: 'bad' });
   sfx(s, 'fail');
   emit(s, { type: 'log', kind: 'crash', drone: d.idx });
 }
@@ -602,8 +603,8 @@ function landPackage(s: Sim, p: Package) {
     s.score = Math.max(0, s.score - SCORE.missPenalty);
     s.streak = 0;
     s.stats.missed++;
-    emit(s, { type: 'popup', text: `MISSED by ${dist.toFixed(1)} m  -${SCORE.missPenalty}`, grade });
-    note(s, `Package for ${o.dest.name} landed off target`, 'bad');
+    emit(s, { type: 'popup', text: `${GRADE_LABEL.MISS} ${dist.toFixed(1)} m  -${SCORE.missPenalty}`, grade });
+    note(s, `${o.dest.name} 택배가 목표를 벗어났습니다`, 'bad');
     sfx(s, 'miss');
     return;
   }
@@ -619,11 +620,11 @@ function landPackage(s: Sim, p: Package) {
   if (grade === 'PERFECT') s.stats.perfect++;
   if (grade === 'GOOD') s.stats.good++;
   o.status = 'delivered';
-  const parts = [`${grade} +${pts}`];
-  if (onTime) parts.push('ON TIME');
+  const parts = [`${GRADE_LABEL[grade]} +${pts}`];
+  if (onTime) parts.push('정시');
   if (mult > 1) parts.push(`x${mult.toFixed(2)}`);
   emit(s, { type: 'popup', text: parts.join('  '), grade });
-  note(s, `Delivered to ${o.dest.name}: +${pts}`, 'good');
+  note(s, `${o.dest.name} 배송 완료: +${pts}`, 'good');
   sfx(s, grade === 'PERFECT' ? 'perfect' : 'good');
   emit(s, { type: 'log', kind: 'delivered', drone: p.drone, value: pts });
 }
@@ -697,7 +698,7 @@ export function step(s: Sim, input: Input, dt: number) {
       if (s.player.holdProgress >= FLIGHT.repairTime) {
         const d = s.drones[s.target.idx];
         d.fault = null; s.player.holdProgress = 0; s.stats.faultsFixed++;
-        note(s, `${droneName(d.idx)} rotor repaired`, 'good'); sfx(s, 'fixed');
+        note(s, `${droneName(d.idx)} 로터 수리 완료`, 'good'); sfx(s, 'fixed');
         emit(s, { type: 'log', kind: 'fixed-motor', drone: d.idx });
       }
     } else s.player.holdProgress = 0;
@@ -726,31 +727,31 @@ export function objective(s: Sim): Objective {
   const padAt = (i: number) => ({ x: BASE.pads[i].x, z: BASE.pads[i].z, y: 2.6 });
   const att = s.drones.find(needsAttention);
   if (att) {
-    const what = att.fault === 'gps' ? 'recalibrate its GPS (hold F)' : att.state === 'hold' ? 'drop the package on the ring' : 'land it on the pad';
-    return { text: `${droneName(att.idx)}: ${what} at the console`, at: p.mode === 'walk' ? consoleAt : null };
+    const what = att.fault === 'gps' ? 'GPS 재보정 (F 길게)' : att.state === 'hold' ? '목표 링에 택배 투하' : '패드에 착륙';
+    return { text: `${droneName(att.idx)}: 콘솔에서 ${what}`, at: p.mode === 'walk' ? consoleAt : null };
   }
   if (p.carrying?.kind === 'crate') {
     const free = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
-    return free ? { text: `Attach the crate to ${droneName(free.idx)} on Pad ${free.idx + 1}`, at: padAt(free.idx) } : { text: 'No free drone — wait or put the crate back', at: null };
+    return free ? { text: `${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, at: padAt(free.idx) } : { text: '빈 드론 없음 — 기다리거나 상자를 선반에 두세요', at: null };
   }
   if (p.carrying?.kind === 'battery') {
     const low = s.drones.filter((d) => d.state === 'pad').sort((a, b) => a.battery - b.battery)[0];
-    return low ? { text: `Swap the battery on ${droneName(low.idx)} (Pad ${low.idx + 1})`, at: padAt(low.idx) } : { text: 'Wait for a drone to land to swap its battery', at: null };
+    return low ? { text: `${droneName(low.idx)} 배터리 교체 (${low.idx + 1}번 패드)`, at: padAt(low.idx) } : { text: '드론이 착륙하면 배터리를 교체하세요', at: null };
   }
   const broken = s.drones.find((d) => d.state === 'pad' && d.fault === 'motor');
-  if (broken) return { text: `Repair the rotor on ${droneName(broken.idx)}: hold E at Pad ${broken.idx + 1}`, at: padAt(broken.idx) };
+  if (broken) return { text: `${droneName(broken.idx)} 로터 수리: ${broken.idx + 1}번 패드에서 E 길게`, at: padAt(broken.idx) };
   const low = s.drones.find((d) => d.state === 'pad' && d.battery < FLIGHT.lowBattery);
-  if (low) return { text: `${droneName(low.idx)} battery ${Math.round(low.battery)}% — fetch a battery from the charging rack`, at: { x: BASE.batteryRack.x, z: BASE.batteryRack.z, y: 2.4 } };
+  if (low) return { text: `${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, at: { x: BASE.batteryRack.x, z: BASE.batteryRack.z, y: 2.4 } };
   const ready = s.drones.find((d) => d.state === 'pad' && d.orderId != null);
-  if (ready) return { text: `Launch ${droneName(ready.idx)} from the console`, at: p.mode === 'walk' ? consoleAt : null };
+  if (ready) return { text: `콘솔에서 ${droneName(ready.idx)} 출발`, at: p.mode === 'walk' ? consoleAt : null };
   const freeDrone = s.drones.find((d) => d.state === 'pad' && d.orderId == null);
   const waiting = s.orders.filter((o) => o.status === 'waiting').sort((a, b) => a.deadline - b.deadline)[0];
   if (freeDrone && waiting && waiting.slot != null) {
     const sl = BASE.shelfSlots[waiting.slot];
-    return { text: `Pick up crate ${waiting.dest.id} (${waiting.dest.name}) from the cargo shelf`, at: { x: sl.x, z: sl.z, y: 2.3 } };
+    return { text: `화물 선반에서 ${waiting.dest.id} 상자 (${waiting.dest.name}) 들기`, at: { x: sl.x, z: sl.z, y: 2.3 } };
   }
-  if (!waiting) return { text: 'Waiting for the next order…', at: null };
-  return { text: 'Drones in flight — watch the status cards', at: null };
+  if (!waiting) return { text: '다음 주문을 기다리는 중…', at: null };
+  return { text: '드론 비행 중 — 상태 카드를 확인하세요', at: null };
 }
 
 export function stageById(id: number) { return STAGES.find((st) => st.id === id); }

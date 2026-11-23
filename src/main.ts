@@ -34,24 +34,24 @@ function hideCard() { screen.classList.add('hidden'); }
 function bind(id: string, fn: () => void) { document.getElementById(id)?.addEventListener('click', () => { initAudio(); fn(); }); }
 
 const CONTROLS = `<div class="ctrl">
-  <kbd>W A S D</kbd><span>Walk (in the base) · steer the drone (at the console)</span>
-  <kbd>Mouse</kbd><span>Look around (click the view to capture the mouse; ← → also turn)</span>
-  <kbd>E</kbd><span>Pick up / attach / swap battery · hold to repair · sit at console</span>
-  <kbd>Space</kbd><span>Console: launch · drop package · begin landing</span>
-  <kbd>F</kbd><span>Console: hold to recalibrate a drone's GPS</span>
-  <kbd>1 2 Tab</kbd><span>Console: switch drone feed</span>
-  <kbd>Q</kbd><span>Leave the console</span>
-  <kbd>P / M</kbd><span>Pause · mute</span>
+  <kbd>W A S D</kbd><span>기지 안 이동 · 콘솔에서는 드론 조종</span>
+  <kbd>마우스</kbd><span>둘러보기 (화면을 클릭하면 마우스 고정, ← →로도 회전)</span>
+  <kbd>E</kbd><span>들기 · 연결 · 배터리 교체 · 길게 눌러 수리 · 콘솔 앉기</span>
+  <kbd>Space</kbd><span>콘솔: 출발 · 택배 투하 · 착륙 시작</span>
+  <kbd>F</kbd><span>콘솔: 길게 눌러 GPS 재보정</span>
+  <kbd>1 2 Tab</kbd><span>콘솔: 드론 화면 전환</span>
+  <kbd>Q</kbd><span>콘솔에서 일어나기</span>
+  <kbd>P / M</kbd><span>일시 정지 · 음소거</span>
 </div>`;
 
 function showTitle() {
   onTitle = true;
   hudEl.classList.add('hidden');
-  showCard(`<div class="logo">SKYHOOK DEPOT</div>
-    <h1>Drone delivery operator</h1>
-    <p>You run a drone delivery depot. Orders come in, you carry the crates to the pads, hook them under a drone and fly each run from the control console: launch, drop on the target ring, bring it home and land it.</p>
+  showCard(`<div class="logo">하늘길 택배</div>
+    <h1>드론 배송 관제사</h1>
+    <p>드론 택배 기지를 운영합니다. 주문이 들어오면 상자를 패드로 옮겨 드론에 연결하고, 관제 콘솔에서 비행을 맡으세요. 출발, 목표 링에 투하, 귀환, 착륙까지.</p>
     ${CONTROLS}
-    <div class="btns"><button class="primary" id="b-start">Start shift</button><button id="b-s2">Jump to Stage 2</button></div>`);
+    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button></div>`);
   bind('b-start', () => showBriefing(1));
   bind('b-s2', () => showBriefing(2));
 }
@@ -64,11 +64,11 @@ function showBriefing(stageId: number) {
   world.resetCamera();
   hudEl.classList.remove('hidden');
   const st = sim.stage;
-  showCard(`<h2>Stage ${st.id} briefing</h2><h1>${st.name}</h1>
+  showCard(`<h2>스테이지 ${st.id} 브리핑</h2><h1>${st.name}</h1>
     <ul>${st.briefing.map((b) => `<li>${b}</li>`).join('')}</ul>
-    <div class="goal"><div><b>${st.target}</b><span>TARGET PTS</span></div><div><b>${Math.floor(st.timeLimit / 60)}:00</b><span>SHIFT TIME</span></div><div><b>${st.drones}</b><span>DRONE${st.drones > 1 ? 'S' : ''}</span></div></div>
-    <p>Each delivery: 100 pts, +60 for a perfect drop, +25 good, +30 on time. Consecutive deliveries build a combo up to x2. Missed drops and expired orders cost points.</p>
-    <div class="btns"><button class="primary" id="b-go">Begin shift</button><button id="b-title">Title</button></div>`);
+    <div class="goal"><div><b>${st.target}</b><span>목표 점수</span></div><div><b>${Math.floor(st.timeLimit / 60)}:00</b><span>근무 시간</span></div><div><b>${st.drones}</b><span>드론 대수</span></div></div>
+    <p>배송 1건 100점, 완벽 투하 +60, 우수 +25, 정시 +30. 연속 배송은 최대 x2까지 콤보가 쌓입니다. 투하 실패와 기한 초과는 감점입니다.</p>
+    <div class="btns"><button class="primary" id="b-go">근무 시작</button><button id="b-title">타이틀</button></div>`);
   bind('b-go', begin);
   bind('b-title', showTitle);
 }
@@ -92,25 +92,25 @@ function showResult() {
   const s = sim;
   const won = s.phase === 'clear';
   const last = s.stage.id === STAGES[STAGES.length - 1].id;
-  const avgTrip = s.stats.trips.length ? (s.stats.trips.reduce((a, b) => a + b, 0) / s.stats.trips.length).toFixed(1) + ' s' : '—';
+  const avgTrip = s.stats.trips.length ? (s.stats.trips.reduce((a, b) => a + b, 0) / s.stats.trips.length).toFixed(1) + '초' : '—';
   const stats = `<div class="stats">
-    <span>Score</span><span>${s.score} / ${s.stage.target}</span>
-    <span>Time used</span><span>${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}</span>
-    <span>Deliveries</span><span>${s.stats.delivered}</span>
-    <span>Perfect / good drops</span><span>${s.stats.perfect} / ${s.stats.good}</span>
-    <span>Missed · expired · crashes</span><span>${s.stats.missed} · ${s.stats.expired} · ${s.stats.crashes}</span>
-    <span>Faults fixed · battery swaps</span><span>${s.stats.faultsFixed} · ${s.stats.swaps}</span>
-    <span>Best combo</span><span>${s.stats.bestStreak}</span>
-    <span>Average round trip</span><span>${avgTrip}</span>
-    ${won ? `<span>Rank</span><span>${rank(s)}</span>` : ''}
+    <span>점수</span><span>${s.score} / ${s.stage.target}</span>
+    <span>걸린 시간</span><span>${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}</span>
+    <span>배송</span><span>${s.stats.delivered}</span>
+    <span>완벽 / 우수 투하</span><span>${s.stats.perfect} / ${s.stats.good}</span>
+    <span>빗나감 · 기한 초과 · 추락</span><span>${s.stats.missed} · ${s.stats.expired} · ${s.stats.crashes}</span>
+    <span>고장 수리 · 배터리 교체</span><span>${s.stats.faultsFixed} · ${s.stats.swaps}</span>
+    <span>최고 콤보</span><span>${s.stats.bestStreak}</span>
+    <span>평균 왕복 시간</span><span>${avgTrip}</span>
+    ${won ? `<span>등급</span><span>${rank(s)}</span>` : ''}
   </div>`;
   if (won) {
-    showCard(`<h2>Stage ${s.stage.id} clear</h2><h1>${last ? 'Shift complete' : 'Target reached'}</h1>${stats}
-      <div class="btns">${last ? '' : '<button class="primary" id="b-next">Next stage</button>'}<button id="b-retry">Replay stage</button><button id="b-title">Title</button></div>`, 'result-good');
+    showCard(`<h2>스테이지 ${s.stage.id} 클리어</h2><h1>${last ? '모든 근무 완료' : '목표 달성'}</h1>${stats}
+      <div class="btns">${last ? '' : '<button class="primary" id="b-next">다음 스테이지</button>'}<button id="b-retry">다시 하기</button><button id="b-title">타이틀</button></div>`, 'result-good');
     bind('b-next', () => showBriefing(s.stage.id + 1));
   } else {
-    showCard(`<h2>Stage ${s.stage.id} failed</h2><h1>Shift over</h1><p>The shift ended before the depot reached its target.</p>${stats}
-      <div class="btns"><button class="primary" id="b-retry">Retry stage</button><button id="b-title">Title</button></div>`, 'result-bad');
+    showCard(`<h2>스테이지 ${s.stage.id} 실패</h2><h1>근무 종료</h1><p>목표 점수에 닿기 전에 근무 시간이 끝났습니다.</p>${stats}
+      <div class="btns"><button class="primary" id="b-retry">다시 도전</button><button id="b-title">타이틀</button></div>`, 'result-bad');
   }
   bind('b-retry', () => showBriefing(s.stage.id));
   bind('b-title', showTitle);
@@ -121,7 +121,7 @@ function setPaused(p: boolean) {
   paused = p;
   if (p) {
     if (document.pointerLockElement) document.exitPointerLock();
-    showCard(`<h2>Paused</h2><h1>Shift on hold</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">Resume</button><button id="b-retry">Restart stage</button><button id="b-title">Title</button></div>`);
+    showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
     bind('b-resume', () => { setPaused(false); lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
     bind('b-title', () => { paused = false; showTitle(); });

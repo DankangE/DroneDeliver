@@ -8,10 +8,11 @@
   --warn: #ffb020;
   --bad: #ff4d4d;
   --cyan: #3dd6ff;
-  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', monospace;
+  --sans: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Segoe UI', sans-serif;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1118; color: var(--text); font: 14px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif; user-select: none; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1118; color: var(--text); font: 14px/1.35 var(--sans); word-break: keep-all; user-select: none; }
 #view { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 .hidden { display: none !important; }
 #hud { position: fixed; inset: 0; pointer-events: none; }
@@ -20,7 +21,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1118; col
 #drones { left: 16px; }
 #right { right: 16px; }
 .panel { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; backdrop-filter: blur(4px); }
-.panel-title { font: 600 11px/1 var(--mono); letter-spacing: 0.18em; color: var(--dim); margin-bottom: 8px; }
+.panel-title { font: 600 11px/1 var(--mono); letter-spacing: 0.06em; color: var(--dim); margin-bottom: 8px; }
 
 .dcard { background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 6px; padding: 9px 12px; }
 .dcard.attn { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber), 0 0 18px rgba(255, 210, 63, 0.35); animation: pulse 0.9s infinite alternate; }
@@ -39,7 +40,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1118; col
 .dsub { margin-top: 6px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 #topbar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 340px; text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px 10px; }
-.stage-name { font: 600 11px/1 var(--mono); letter-spacing: 0.16em; color: var(--dim); text-transform: uppercase; }
+.stage-name { font: 600 11px/1 var(--mono); letter-spacing: 0.06em; color: var(--dim); text-transform: uppercase; }
 .score-row { font: 700 26px/1.2 var(--mono); margin-top: 4px; }
 .score-row .slash, .score-row .unit { color: var(--dim); font-size: 15px; margin: 0 4px; }
 .bar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; margin-top: 4px; }
@@ -75,7 +76,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1118; col
 #hold-fill { height: 100%; width: 0; background: var(--amber); }
 
 #objective { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 9px 14px; font-size: 15px; display: flex; gap: 10px; align-items: center; max-width: 640px; }
-#objective .tag { font: 700 11px/1 var(--mono); letter-spacing: 0.15em; background: var(--amber); color: #111; padding: 4px 6px; border-radius: 3px; }
+#objective .tag { font: 700 11px/1 var(--mono); letter-spacing: 0.04em; background: var(--amber); color: #111; padding: 4px 6px; border-radius: 3px; }
 #carry { position: absolute; left: 16px; bottom: 22px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; font: 600 12px/1.3 var(--mono); }
 #carry:empty { display: none; }
 #keys { position: absolute; right: 16px; bottom: 22px; font: 11px/1.6 var(--mono); color: var(--dim); text-align: right; background: rgba(9, 14, 21, 0.5); padding: 6px 10px; border-radius: 5px; }
@@ -117,8 +118,8 @@ body.console #keys { bottom: 340px; }
 .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(8, 14, 22, 0.72), rgba(4, 7, 12, 0.94)); z-index: 10; }
 .screen.hidden { display: none; }
 .card { width: min(640px, calc(100vw - 32px)); background: rgba(13, 20, 29, 0.96); border: 1px solid var(--line); border-top: 4px solid var(--amber); border-radius: 8px; padding: 28px 32px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-.card h1 { margin: 0 0 4px; font: 800 34px/1.1 system-ui, sans-serif; letter-spacing: 0.01em; }
-.card h2 { margin: 0 0 16px; font: 600 13px/1 var(--mono); letter-spacing: 0.2em; color: var(--amber); text-transform: uppercase; }
+.card h1 { margin: 0 0 4px; font: 800 34px/1.1 var(--sans); letter-spacing: 0.01em; }
+.card h2 { margin: 0 0 16px; font: 600 13px/1 var(--mono); letter-spacing: 0.06em; color: var(--amber); text-transform: uppercase; }
 .card p, .card li { color: #c9d6df; }
 .card ul { padding-left: 18px; }
 .goal { display: flex; gap: 12px; margin: 16px 0; }
@@ -127,14 +128,14 @@ body.console #keys { bottom: 340px; }
 .goal span { font: 11px/1 var(--mono); color: var(--dim); letter-spacing: 0.1em; }
 .ctrl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; color: #c9d6df; margin: 12px 0; }
 .btns { display: flex; gap: 10px; margin-top: 20px; }
-button { pointer-events: auto; font: 700 15px/1 system-ui, sans-serif; padding: 12px 20px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--text); cursor: pointer; }
+button { pointer-events: auto; font: 700 15px/1 var(--sans); padding: 12px 20px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--text); cursor: pointer; }
 button.primary { background: var(--amber); color: #111; border-color: var(--amber); }
 button:hover { filter: brightness(1.12); }
 .stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 20px; font: 14px/1.3 var(--mono); margin: 16px 0; }
 .stats span:nth-child(even) { text-align: right; font-weight: 700; }
 .result-bad { border-top-color: var(--bad); }
 .result-good { border-top-color: var(--good); }
-.logo { font: 800 13px/1 var(--mono); letter-spacing: 0.3em; color: var(--cyan); margin-bottom: 14px; }
+.logo { font: 800 13px/1 var(--mono); letter-spacing: 0.12em; color: var(--cyan); margin-bottom: 14px; }
 #small-screen { display: none; z-index: 20; background: #070b10; }
 @media (max-width: 899px), (pointer: coarse) and (hover: none) {
   #small-screen { display: flex; }

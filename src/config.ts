@@ -15,7 +15,7 @@ export interface StageDef {
 export const STAGES: StageDef[] = [
   {
     id: 1,
-    name: 'Day Shift — Single Drone',
+    name: '주간 근무 — 드론 1대',
     drones: 1,
     target: 450,
     timeLimit: 420,
@@ -25,15 +25,15 @@ export const STAGES: StageDef[] = [
     windBase: 1.2,
     faultChance: 0.15,
     briefing: [
-      'You run Pad 1 at Skyhook Depot. One drone, one operator: you.',
-      'Orders arrive on the board. Grab the matching crate from the cargo shelf, load it onto the drone, then fly it from the control console.',
-      'Drop the package on the target ring (watch the wind), let it fly home and land it on the pad.',
-      'Swap batteries at the charging rack when they run low and clear any faults.',
+      '하늘길 택배 기지의 1번 패드를 맡았습니다. 드론 1대, 운영자는 당신 한 명.',
+      '주문이 들어오면 화물 선반에서 해당 상자를 들고 드론에 실은 뒤, 관제 콘솔에서 비행시키세요.',
+      '바람을 보며 목표 링에 택배를 투하하고, 돌아온 드론을 패드에 착륙시키세요.',
+      '배터리가 부족하면 충전 거치대에서 교체하고, 고장은 그때그때 처리하세요.',
     ],
   },
   {
     id: 2,
-    name: 'Rush Hour — Twin Drones',
+    name: '러시아워 — 드론 2대',
     drones: 2,
     target: 1000,
     timeLimit: 480,
@@ -43,10 +43,10 @@ export const STAGES: StageDef[] = [
     windBase: 2.2,
     faultChance: 0.25,
     briefing: [
-      'Pad 2 is online. You now run two drones at the same time.',
-      'Keep both in the air: load one while the other cruises, and switch feeds at the console with 1 / 2 or Tab.',
-      'Wind is stronger and faults are more common. Orders expire faster.',
-      'A drone left hovering still burns battery, so keep an eye on both status cards.',
+      '2번 패드가 열렸습니다. 이제 드론 2대를 동시에 운영합니다.',
+      '한 대가 비행하는 동안 다른 한 대에 짐을 실으세요. 콘솔에서 1 / 2 또는 Tab으로 화면을 전환합니다.',
+      '바람이 더 세고 고장이 잦습니다. 주문 마감도 더 빠릅니다.',
+      '제자리 비행 중에도 배터리는 닳습니다. 두 드론의 상태 카드를 계속 확인하세요.',
     ],
   },
 ];
@@ -60,12 +60,12 @@ export interface Destination {
 }
 
 export const DESTINATIONS: Destination[] = [
-  { id: 'A1', name: 'Northgate Clinic', x: 40, z: -190, color: 0x4fc3f7 },
-  { id: 'B2', name: 'Harbor Lofts', x: 185, z: -60, color: 0xffb74d },
-  { id: 'C3', name: 'Pine Ridge Farm', x: -175, z: -95, color: 0x81c784 },
-  { id: 'D4', name: 'Old Mill Cafe', x: -150, z: 140, color: 0xe57373 },
-  { id: 'E5', name: 'Sunset Terrace', x: 120, z: 160, color: 0xba68c8 },
-  { id: 'F6', name: 'Riverside School', x: -40, z: 205, color: 0xfff176 },
+  { id: 'A1', name: '북문 의원', x: 40, z: -190, color: 0x4fc3f7 },
+  { id: 'B2', name: '항구 아파트', x: 185, z: -60, color: 0xffb74d },
+  { id: 'C3', name: '솔마루 농장', x: -175, z: -95, color: 0x81c784 },
+  { id: 'D4', name: '옛방앗간 카페', x: -150, z: 140, color: 0xe57373 },
+  { id: 'E5', name: '노을 테라스', x: 120, z: 160, color: 0xba68c8 },
+  { id: 'F6', name: '강변 초등학교', x: -40, z: 205, color: 0xfff176 },
 ];
 
 export const FLIGHT = {

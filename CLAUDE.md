@@ -1,6 +1,6 @@
-# DroneDeliver (Skyhook Depot)
+# DroneDeliver (하늘길 택배)
 
-First-person drone delivery game. Browser only, runs locally.
+First-person drone delivery game. Browser only, runs locally. All player-facing text is Korean; code identifiers stay English.
 
 ## Stack
 - Three.js + Vite + TypeScript (strict). No backend, no API keys, no deploy config.

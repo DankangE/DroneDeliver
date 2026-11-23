@@ -1,6 +1,6 @@
-# DroneDeliver — Skyhook Depot
+# DroneDeliver — 하늘길 택배
 
-A first-person drone delivery game that runs in the browser. You work the floor of a small drone depot: orders come in, you carry each crate from the cargo shelf to a drone on its pad, hook it on, then fly the run from the control console. The drone takes off, cruises to the destination, waits for you to drop the package on the target ring, flies home and waits for you to land it. Batteries run down and things break, and you fix them on the way.
+**하늘길 택배** ("Skyway Parcel") is a first-person drone delivery game that runs in the browser. The game is fully in Korean; this README is in English and quotes the on-screen Korean labels where it helps. You work the floor of a small drone depot: orders come in, you carry each crate from the cargo shelf to a drone on its pad, hook it on, then fly the run from the control console. The drone takes off, cruises to the destination, waits for you to drop the package on the target ring, flies home and waits for you to land it. Batteries run down and things break, and you fix them on the way.
 
 ![Title](docs/screenshots/01-title.png)
 
@@ -20,7 +20,7 @@ npm run preview        # http://localhost:4173  (PREVIEW_PORT=xxxx or PORT=xxxx 
 
 Both servers bind to `localhost` only. `npm run verify` runs the TypeScript check and the production build.
 
-Desktop browser with keyboard and mouse required. Below 900 px wide (or on a touch-only device) the game shows a "Desktop required" notice instead.
+Desktop browser with keyboard and mouse required. Below 900 px wide (or on a touch-only device) the game shows a "PC 전용 게임" (desktop required) notice instead.
 
 ## Controls
 
@@ -38,10 +38,10 @@ Desktop browser with keyboard and mouse required. Below 900 px wide (or on a tou
 
 ## How a delivery works
 
-1. **Order** — a new order appears on the ORDERS panel (destination code, name, time left) and its crate lands on the cargo shelf, colour-coded and labelled with the destination code.
+1. **Order** — a new order appears on the 주문 (orders) panel (destination code, name, time left) and its crate lands on the cargo shelf, colour-coded and labelled with the destination code.
 2. **Load** — walk to the shelf, `E` to pick up the crate, carry it out to the pad, `E` to attach it under the drone.
-3. **Launch** — walk to the CONTROL console, `E` to sit, `Space` to launch. The console shows the drone's camera feed, a minimap and every drone's status card.
-4. **Drop** — the autopilot cruises at 30 m, then descends to 12 m over the destination and holds. The wind pushes it around. A magenta ring shows where the package would land right now; steer it onto the target with `WASD` and press `Space`. Within 2 m is PERFECT, 5 m GOOD, 9 m OK, beyond that the package is lost.
+3. **Launch** — walk to the 관제 (control) console, `E` to sit, `Space` to launch. The console shows the drone's camera feed, a minimap and every drone's status card.
+4. **Drop** — the autopilot cruises at 30 m, then descends to 12 m over the destination and holds. The wind pushes it around. A magenta ring shows where the package would land right now; steer it onto the target with `WASD` and press `Space`. Within 2 m is 완벽 (perfect), 5 m 우수 (good), 9 m 양호 (OK), beyond that it is 빗나감 (miss) and the package is lost.
 5. **Land** — the drone flies home and holds over its pad. Steer it back over the H if the wind moved it and press `Space`. Starting the descent more than 2.6 m off-centre is a hard landing and damages a rotor.
 
 A normal round trip (takeoff, cruise, drop, return, landing) takes **30–40 s of game time**; see [Measured round trips](#playtest).
@@ -50,22 +50,22 @@ A normal round trip (takeoff, cruise, drop, return, landing) takes **30–40 s o
 
 | Event | What happens | How to fix it |
 | --- | --- | --- |
-| **Battery low** | Batteries drain in flight (faster than you think when a drone is left hovering). Below 35 % the console refuses to launch; at 0 % the drone falls out of the sky (-60, cargo lost, 12 s recovery, comes back broken and empty). | Take a charged battery from the CHARGING rack (`E`), carry it to the pad, `E` to swap. |
-| **GPS fault** | Mid-flight the autopilot loses its position fix and pauses; the drone drifts with the wind. | At the console, select the drone and **hold `F`** for 2 s. |
-| **Rotor fault** | After a hard landing, a crash or (randomly) a rough flight the drone reports rotor vibration and cannot launch. | Walk to the pad and **hold `E`** for 2 s. |
+| **Battery low** (배터리 부족 / 배터리 교체) | Batteries drain in flight (faster than you think when a drone is left hovering). Below 35 % the console refuses to launch; at 0 % the drone falls out of the sky (-60, cargo lost, 12 s recovery, comes back broken and empty). | Take a charged battery from the 충전 (charging) rack (`E`), carry it to the pad, `E` to swap. |
+| **GPS fault** (GPS 장애) | Mid-flight the autopilot loses its position fix and pauses; the drone drifts with the wind. | At the console, select the drone and **hold `F`** for 2 s. |
+| **Rotor fault** (로터 고장 / 로터 수리) | After a hard landing, a crash or (randomly) a rough flight the drone reports rotor vibration and cannot launch. | Walk to the pad and **hold `E`** for 2 s. |
 
 ## Stages
 
 | Stage | Drones | Target | Shift time | What changes |
 | --- | --- | --- | --- | --- |
-| 1 · Day Shift | 1 | 450 pts | 7:00 | Light wind, orders every ~22 s, 2:00 per order. The second flight always has a GPS fault so you learn the fix. |
-| 2 · Rush Hour | 2 (fly at the same time) | 1000 pts | 8:00 | Pad 2 opens. Stronger wind, orders every ~13 s, 1:45 per order, more faults. |
+| 1 · 주간 근무 (Day Shift) | 1 | 450 pts | 7:00 | Light wind, orders every ~22 s, 2:00 per order. The second flight always has a GPS fault so you learn the fix. |
+| 2 · 러시아워 (Rush Hour) | 2 (fly at the same time) | 1000 pts | 8:00 | Pad 2 opens. Stronger wind, orders every ~13 s, 1:45 per order, more faults. |
 
 Reach the target before the shift timer runs out to clear the stage; run out of time and the stage fails (retry from the result screen). Each stage starts with a briefing and ends with a result screen (score, deliveries, drop grades, faults fixed, battery swaps, best combo, average round trip, rank).
 
 ### Scoring
 
-- 100 per delivery, +60 PERFECT, +25 GOOD, +30 ON TIME (dropped within the first 75 % of the order window).
+- 100 per delivery, +60 완벽, +25 우수, +30 정시 (on time) (dropped within the first 75 % of the order window).
 - Combo: each consecutive delivery adds x0.25, up to x2. A miss, an expired order or a crash resets it.
 - Missed drop -20, expired order -40, crash -60.
 
@@ -75,10 +75,10 @@ The first playable build was only the brief's loop: load, launch, drop, land. Af
 
 - **Wind, a drop predictor and graded drops.** At first a drop happened the moment you pressed Space, so it took no skill. Now the wind drifts both the hovering drone and the falling package. A magenta ring shows where the package would land, and the drop scores PERFECT, GOOD, OK or MISS. That turns the drop into a short aiming task.
 - **Landing you steer, with a hard-landing check.** Returning used to need no input. Now you line the drone up over the H. Starting the descent off-centre damages a rotor, which gives the rotor fault a cause the player can see.
-- **Order deadlines and an ON TIME bonus.** Without a clock, letting orders pile up cost nothing. Expiring orders (-40) and the bonus make you choose which order to take next.
+- **Order deadlines and an on-time (정시) bonus.** Without a clock, letting orders pile up cost nothing. Expiring orders (-40) and the bonus make you choose which order to take next.
 - **Combo multiplier (up to x2).** This rewards a clean run of deliveries. In Stage 2 it pushes you to keep both drones busy rather than safe.
 - **Hover battery drain and crashes.** A drone left waiting over a target still burns battery. If it runs out, it falls (-60, 12 s recovery, comes back with a rotor fault). This makes leaving a drone unattended in Stage 2 a real risk.
-- **Objective tracker, 3D marker and attention ping.** In Stage 2, playtests kept losing a drone that was waiting for input while the player was walking around the depot. A "NEXT" line, a floating marker in the depot and a double ping every 3.5 s while any drone needs you fix that.
+- **Objective tracker, 3D marker and attention ping.** In Stage 2, playtests kept losing a drone that was waiting for input while the player was walking around the depot. A "다음" (next) line, a floating marker in the depot and a double ping every 3.5 s while any drone needs you fix that.
 - **Scripted GPS fault on the second flight of Stage 1.** Random faults sometimes never appeared in Stage 1. Now every player meets the GPS fix once before Stage 2 makes faults common.
 - **Result rank (S/A/B), stats, retry and a lose condition.** Clearing a stage needed a payoff, and failing needed a way back in. The shift timer ends the stage on failure, and the result screen offers retry, next stage or title.
 
@@ -122,7 +122,7 @@ Events, all resolved by the bot:
 Other checks:
 
 - Running the clock out ends the stage with `phase=fail` and shows the failed screen.
-- At 390 px width the "Desktop required" notice shows.
+- At 390 px width the "PC 전용 게임" notice shows.
 - No console errors or page errors.
 
 Screenshots (`docs/screenshots/`):
@@ -138,6 +138,12 @@ Screenshots (`docs/screenshots/`):
 | ![Stage 2 briefing](docs/screenshots/09-briefing-stage2.png) | ![Phone-width notice](docs/screenshots/14-phone-notice.png) |
 
 Options: `CHROME_PATH=/path/to/chrome`, `PLAYTEST_SPEED=1` (all real time), `PLAYTEST_ONLY=1|2`, `HEADED=1`.
+
+## Localization
+
+All player-facing text is Korean: title, briefing and result screens, HUD, order panel, destination names, alerts, interact prompts, control hints, pause screen, event names, drop grades, the desktop-only notice, and the canvas-drawn depot signs, pad labels and destination labels. Code identifiers stay in English.
+
+Fonts are system Korean fonts first (Apple SD Gothic Neo on macOS, Malgun Gothic on Windows), with Noto Sans KR from Google Fonts (free, SIL Open Font License) as the fallback. Canvas signs use the same stack, so Hangul renders there too.
 
 ## Development
 
@@ -166,7 +172,7 @@ __game.log                   // timestamped game events (launch, drop, touchdown
 
 ## Assets and licences
 
-Everything is generated at runtime by the game's own code: geometry is built from Three.js primitives, textures (crates, signs, pads, grass, concrete, building façades) are drawn on canvas, and all sounds are synthesised with the Web Audio API. No third-party art, audio or fonts are bundled.
+Everything is generated at runtime by the game's own code: geometry is built from Three.js primitives, textures (crates, signs, pads, grass, concrete, building façades) are drawn on canvas, and all sounds are synthesised with the Web Audio API. No third-party art, audio or fonts are bundled; Noto Sans KR (SIL OFL 1.1) is loaded from Google Fonts only as a fallback when no system Korean font is present.
 
 Libraries: [three](https://threejs.org) (MIT), [Vite](https://vitejs.dev) (MIT), TypeScript (Apache-2.0); playtest only: playwright-core (Apache-2.0).
 
