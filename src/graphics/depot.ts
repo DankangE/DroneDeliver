@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { hangarCladding } from './cladding';
 import { BASE, DESTINATIONS } from '../config';
 import { batteryPack } from './drone';
+import { batchRigidParts } from './drone/parts';
 import {
   DRONE_COLORS, KO_FONT, box, brushedAluminium, canvasTex, cardboard, emissiveLedPanel, glossPlastic,
   groundPlane, ink, mattePlastic, mergeCompatible, paintedSteel, rubber, seeded, solid, tintedWindowGlass, type Surfaces,
@@ -119,10 +120,12 @@ function installSection(scene: THREE.Scene, section: THREE.Group) {
     const material: THREE.Material = obj.material;
     let byShadow = batches.get(material);
     if (!byShadow) batches.set(material, byShadow = new Map());
-    let parts = byShadow.get(obj.castShadow);
-    if (!parts) byShadow.set(obj.castShadow, parts = []);
-    const geo = new THREE.BufferGeometry().copy(obj.geometry);
-    parts.push(geo.applyMatrix4(obj.matrixWorld));
+    const geo = new THREE.BufferGeometry().copy(obj.geometry).applyMatrix4(obj.matrixWorld);
+    geo.computeBoundingSphere();
+    const casts = obj.castShadow && geo.boundingSphere!.radius >= 0.24;
+    let parts = byShadow.get(casts);
+    if (!parts) byShadow.set(casts, parts = []);
+    parts.push(geo);
   });
   const result = new THREE.Group(); result.name = section.name;
   for (const [material, byShadow] of batches) for (const [casts, parts] of byShadow) {
@@ -421,11 +424,25 @@ function chargingStation(group: THREE.Group, scene: THREE.Scene, marks: THREE.Sc
     }
     for (const px of [12, 244]) for (const py of [15, 369]) { g.beginPath(); g.arc(px, py, 4, 0, tau); g.fill(); }
   }));
+  const pack = batteryPack(s.metal);
+  batchRigidParts(pack);
+  const pose = new THREE.Object3D();
+  pose.rotation.y = -Math.PI / 2;
+  for (const part of pack.children) {
+    if (!(part instanceof THREE.Mesh)) continue;
+    const cassettes = new THREE.InstancedMesh(part.geometry, part.material, 4);
+    for (let i = 0; i < 4; i++) {
+      pose.position.set(10.45, 1.85, rack.z - 0.9 + i * 0.6);
+      pose.updateMatrix();
+      cassettes.setMatrixAt(i, pose.matrix);
+    }
+    cassettes.receiveShadow = true;
+    cassettes.computeBoundingSphere();
+    scene.add(cassettes);
+  }
   for (let i = 0; i < 4; i++) {
     const z = rack.z - 0.9 + i * 0.6;
     box(group, 0.42, 0.058, 0.45, m.rubber, 10.54, 1.617, z);
-    const pack = batteryPack(s.metal);
-    pack.position.set(10.45, 1.85, z); pack.rotation.y = -Math.PI / 2; scene.add(pack);
     plate(group, 0.45, 0.67, vent, front + 0.017, 0.78, z, -Math.PI / 2);
     box(group, 0.048, 0.135, 0.43, m.dark, front + 0.015, 1.37, z);
     for (let j = 0; j < 5; j++) {
@@ -644,10 +661,12 @@ export function buildDepot(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) 
   const shelving = new THREE.Group(); shelving.name = '출고 선반';
   cargoShelves(shelving, marks, s, m);
   installSection(scene, shelving);
-  const workstations = new THREE.Group(); workstations.name = '충전 · 관제';
-  chargingStation(workstations, scene, marks, s, m);
-  controlRoom(workstations, marks, m);
-  installSection(scene, workstations);
+  const charger = new THREE.Group(); charger.name = '충전';
+  chargingStation(charger, scene, marks, s, m);
+  installSection(scene, charger);
+  const consoleDesk = new THREE.Group(); consoleDesk.name = '관제';
+  controlRoom(consoleDesk, marks, m);
+  installSection(scene, consoleDesk);
   const pads = new THREE.Group(); pads.name = '이착륙장';
   launchPads(pads, marks, s, m);
   installSection(scene, pads);

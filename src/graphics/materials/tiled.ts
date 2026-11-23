@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { grainMaps, withAoUv } from './textures';
+import { grainMaps, textureSettings, withAoUv } from './textures';
 
 type Profile = 'grass' | 'asphalt' | 'floor' | 'wood' | 'plate' | 'wall' | 'iron'
   | 'paintedSteel' | 'weatheredPaint';
@@ -39,10 +39,14 @@ const sampling = /* glsl */`
                       finishOffset(cell + vec2(0,side)), w / dot(w, vec3(1)));
   }
   vec4 finishSample(sampler2D tex, vec2 uv, FinishTile tile) {
+    #ifdef DIRECT_TILE_SAMPLING
+    return texture2D(tex, uv);
+    #else
     vec2 dx = dFdx(uv), dy = dFdy(uv);
     return tile.weight.x * textureGrad(tex, uv + tile.a, dx, dy)
          + tile.weight.y * textureGrad(tex, uv + tile.b, dx, dy)
          + tile.weight.z * textureGrad(tex, uv + tile.c, dx, dy);
+    #endif
   }
 `;
 
@@ -112,10 +116,11 @@ export class TiledMaterial extends THREE.MeshPhysicalMaterial {
   }
 
   override customProgramCacheKey() {
-    return 'finish/' + this.profile + '/' + (this.roughnessMap === this.metalnessMap) + '/' + (this.roughnessMap === this.map);
+    return 'finish/' + this.profile + '/' + textureSettings.blendTiles + '/' + (this.roughnessMap === this.metalnessMap) + '/' + (this.roughnessMap === this.map);
   }
 
   override onBeforeCompile(shader: THREE.WebGLProgramParametersWithUniforms, _renderer: THREE.WebGLRenderer) {
+    if (!textureSettings.blendTiles) shader.defines = { ...shader.defines, DIRECT_TILE_SAMPLING: 1 };
     const profile = this.profile;
     const paint = profile === 'paintedSteel', plaster = profile === 'weatheredPaint';
     const packed = this.roughnessMap && this.roughnessMap === this.metalnessMap;

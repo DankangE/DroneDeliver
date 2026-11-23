@@ -1,13 +1,23 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { TIERS, type TierSettings } from '../quality';
 
-let anisotropy = 16;
+let anisotropy = 1;
+export let textureSettings = TIERS.medium;
+const filteredTextures = new Set<THREE.Texture>();
 
-export function setTextureQuality(renderer: THREE.WebGLRenderer) {
-  anisotropy = Math.max(1, renderer.capabilities.getMaxAnisotropy());
+export function setTextureQuality(renderer: THREE.WebGLRenderer, settings: TierSettings) {
+  textureSettings = settings;
+  anisotropy = Math.max(1, Math.min(settings.anisotropy, renderer.capabilities.getMaxAnisotropy()));
+  for (const texture of filteredTextures) {
+    if (texture.anisotropy === anisotropy) continue;
+    texture.anisotropy = anisotropy;
+    texture.needsUpdate = true;
+  }
 }
 
 export function filterTexture<T extends THREE.Texture>(texture: T, space: THREE.ColorSpace, metres?: number) {
+  filteredTextures.add(texture);
   texture.colorSpace = space;
   texture.anisotropy = anisotropy;
   texture.generateMipmaps = true;

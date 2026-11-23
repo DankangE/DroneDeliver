@@ -6,17 +6,19 @@ import { buildDestinations } from './graphics/destinations';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
 import { displayContents, packingStation, productModel, stockShelves } from './graphics/packing';
 import { crateModel } from './graphics/crate';
-import { canvasTex, ink, surfaces, type Surfaces } from './graphics/materials';
+import { canvasTex, ink, setTextureQuality, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
-import { loadQualitySetting, saveQualitySetting, type QualitySetting, type QualityTier } from './graphics/quality';
+import { AdaptiveQuality, TIERS, loadQualitySetting, saveQualitySetting, type QualitySetting, type QualityTier } from './graphics/quality';
 import { buildTerrain } from './graphics/terrain';
 
 export class World {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(75, 1, 0.05, 1500);
+  private readonly adaptive = new AdaptiveQuality(loadQualitySetting());
+  camera = new THREE.PerspectiveCamera(75, 1, 0.05, TIERS[this.adaptive.tier].far);
   private pipeline: Pipeline;
   private materials: Surfaces;
+  private terrain: ReturnType<typeof buildTerrain>;
   private drones: DroneMesh[] = [];
   private labels: THREE.Sprite[];
   private crates = new Map<number, { mesh: THREE.Group; ttl: number | null }>();
@@ -34,15 +36,14 @@ export class World {
   private camLook = new THREE.Vector3();
   private camInit = false;
   private bob = 0;
-  private qualitySetting: QualitySetting = loadQualitySetting();
-  private qualityTier: QualityTier = 'medium';
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.pipeline = new Pipeline(this.renderer, this.camera, this.scene);
-    this.materials = surfaces(this.renderer);
+    const settings = TIERS[this.adaptive.tier];
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.pipeline = new Pipeline(this.renderer, this.camera, this.scene, settings);
+    this.materials = surfaces(this.renderer, settings);
     this.camera.rotation.order = 'YXZ';
-    buildTerrain(this.scene, this.materials);
+    this.terrain = buildTerrain(this.scene, this.materials);
     const marks = this.pipeline.markings;
     buildDepot(this.scene, marks, this.materials);
     stockShelves(this.scene);
@@ -52,6 +53,7 @@ export class World {
 
     this.heldCrate.scale.setScalar(0.8);
     this.heldBattery = batteryPack(this.materials.metal);
+    this.heldBattery.traverse(part => { part.castShadow = false; });
     this.heldItem.scale.setScalar(1.32);
     this.heldItem.rotation.set(0.08, -0.35, -0.12);
     this.held.add(this.heldCrate, this.heldBattery, this.heldItem);
@@ -84,6 +86,8 @@ export class World {
     this.padOffline.position.set(BASE.pads[1].x, 0.108, BASE.pads[1].z);
     this.padOffline.renderOrder = 1;
     marks.add(this.padOffline);
+    this.terrain.setQuality(settings);
+    this.pipeline.prepare(this.scene);
   }
 
   resize(w: number, h: number) {
@@ -98,6 +102,7 @@ export class World {
     let model = this.crateModels.get(key);
     if (!model) {
       model = crateModel(code, color, variant);
+      this.pipeline.prepare(model);
       this.crateModels.set(key, model);
     }
     return model.clone();
@@ -106,10 +111,15 @@ export class World {
   update(s: Sim, dt: number) {
     while (this.drones.length < s.drones.length) {
       const drone = droneModel(this.drones.length, this.materials);
+      this.pipeline.prepare(drone.group);
       this.scene.add(drone.group);
       this.drones.push(drone);
     }
-    this.drones.forEach((drone, i) => { drone.group.visible = i < s.drones.length; });
+    this.drones.forEach((drone, i) => {
+      const visible = i < s.drones.length;
+      if (drone.group.visible !== visible) this.pipeline.invalidateCasters();
+      drone.group.visible = visible;
+    });
     this.padOffline.visible = s.stage.drones < 2;
     s.drones.forEach((d, i) => this.updateDrone(d, this.drones[i], dt));
     this.updateCrates(s, dt);
@@ -118,6 +128,7 @@ export class World {
     const contentsKey = s.box?.contents.join('/') ?? '';
     if (this.contentsKey !== contentsKey) {
       displayContents(this.packing.contents, s.box?.contents ?? []);
+      this.pipeline.prepare(this.packing.contents);
       this.contentsKey = contentsKey;
     }
 
@@ -126,6 +137,7 @@ export class World {
     if (carry?.kind === 'item' && this.heldItem.name !== carry.product) {
       this.heldItem.clear();
       this.heldItem.add(productModel(carry.product));
+      this.pipeline.prepare(this.heldItem);
       this.heldItem.name = carry.product;
     }
     this.held.visible = s.player.mode === 'walk' && carry != null;
@@ -159,7 +171,12 @@ export class World {
   }
 
   private updateDrone(d: Drone, m: DroneMesh, dt: number) {
-    m.group.position.set(d.pos.x, d.pos.y, d.pos.z);
+    const position = m.group.position;
+    if (d.state !== 'pad' || m.speed > 0.01 || m.group.rotation.y !== d.yaw ||
+        position.x !== d.pos.x || position.y !== d.pos.y || position.z !== d.pos.z) {
+      this.pipeline.invalidateCasters();
+    }
+    position.set(d.pos.x, d.pos.y, d.pos.z);
     m.group.rotation.y = d.yaw;
     const spin = d.state === 'pad' ? 0 : d.state === 'down' ? 2 : 100;
     m.speed = THREE.MathUtils.damp(m.speed, spin, 6, dt);
@@ -251,16 +268,30 @@ export class World {
 
   /** Player-chosen setting ('auto' picks a tier from measured FPS) and the tier in effect. */
   get quality(): { setting: QualitySetting; tier: QualityTier } {
-    return { setting: this.qualitySetting, tier: this.qualityTier };
+    return { setting: this.adaptive.setting, tier: this.adaptive.tier };
   }
 
   setQuality(setting: QualitySetting) {
-    this.qualitySetting = setting;
+    this.adaptive.select(setting);
+    this.applyTier();
     saveQualitySetting(setting);
-    if (setting !== 'auto') this.qualityTier = setting;
+  }
+
+  private applyTier() {
+    const settings = TIERS[this.adaptive.tier];
+    setTextureQuality(this.renderer, settings);
+    this.terrain.setQuality(settings);
+    this.pipeline.setTier(settings);
   }
 
   resetCamera() { this.camInit = false; }
 
-  render() { this.pipeline.render(); }
+  render(now = performance.now()) {
+    const { tier, scale } = this.adaptive;
+    this.adaptive.sample(now);
+    if (tier !== this.adaptive.tier) this.applyTier();
+    else if (scale !== this.adaptive.scale) this.pipeline.setScale(this.adaptive.scale);
+    this.terrain.update(this.camera.position, TIERS[this.adaptive.tier]);
+    this.pipeline.render();
+  }
 }

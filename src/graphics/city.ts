@@ -62,7 +62,7 @@ export function buildCity(scene: THREE.Scene, s: Surfaces, roads: Street[], path
   const atlas = citySignAtlas([...shops, ...numbers]);
   const signs = new Map<string, THREE.BufferGeometry[]>();
   function sign(f: Frame, id: number, u: number, y: number, v: number, w: number, h: number) {
-    const p = f.at(u, v), key = cellAt(p.x, p.z);
+    const p = f.at(u, v), key = cellAt(p.x, p.z, 165);
     let cell = signs.get(key);
     if (!cell) signs.set(key, cell = []);
     cell.push(atlas.face(id, w, h).rotateY(f.yaw).translate(p.x, y, p.z));
@@ -77,7 +77,7 @@ export function buildCity(scene: THREE.Scene, s: Surfaces, roads: Street[], path
   function shell(f: Frame, material: THREE.Material, w: number, h: number, d: number, y: number, pitch = 0, tint = 0xffffff) {
     let cells = shells.get(material);
     if (!cells) shells.set(material, cells = new Map());
-    const key = cellAt(f.x, f.z);
+    const key = cellAt(f.x, f.z, 165);
     let cell = cells.get(key);
     if (!cell) cells.set(key, cell = []);
     const g = boxGeo(w, h, d).rotateX(pitch).rotateY(f.yaw).translate(f.x, y, f.z);
@@ -234,7 +234,8 @@ export function buildCity(scene: THREE.Scene, s: Surfaces, roads: Street[], path
     for (const cell of cells.values()) solid(scene, mergeCompatible(cell), tinted);
   }
   for (const cell of signs.values()) solid(scene, mergeCompatible(cell), atlas.material).castShadow = false;
-  for (const b of [detail, zinc, glazed, occupied, tank, panel, gables]) b.build(scene);
-  fan.build(scene, false);
+  gables.build(scene);
+  for (const windows of [glazed, occupied]) windows.build(scene, false);
+  for (const fittings of [detail, zinc, tank, panel, fan]) fittings.build(scene, false, true);
   return lots;
 }

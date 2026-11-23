@@ -16,7 +16,7 @@ const stations = [
 function bladeGeometry() {
   const positions: number[] = [], colors: number[] = [], index: number[] = [];
   const uvs: number[] = [];
-  const perimeter = 32;
+  const perimeter = 20;
   const graphite = new THREE.Color(0x343b3c), marking = new THREE.Color(0xb9b7a7);
   stations.forEach(([r, chord, sweep, height, degrees], row) => {
     const pitch = THREE.MathUtils.degToRad(degrees);
@@ -86,7 +86,7 @@ function motorWindings() {
     const t = step / 80, a = 5 * tau * t;
     points.push(point(0.017 * Math.cos(a), 0.024 * Math.sin(a), 0.055 + 0.041 * t));
   }
-  const wire = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 100, 0.0036, 7, false);
+  const wire = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 40, 0.0036, 4, false);
   return mergeCompatible(Array.from({ length: 12 }, (_, i) => wire.clone().rotateY(tau * i / 12)));
 }
 

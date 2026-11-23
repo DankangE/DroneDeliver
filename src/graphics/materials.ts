@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { filterTexture, setTextureQuality, withAoUv } from './materials/textures';
+import { filterTexture, textureSettings, setTextureQuality, withAoUv } from './materials/textures';
+import type { TierSettings } from './quality';
 import { TiledMaterial } from './materials/tiled';
 
-export { mergeCompatible, withAoUv } from './materials/textures';
+export { mergeCompatible, setTextureQuality, withAoUv } from './materials/textures';
 export {
   brushedAluminium, carbonFibre, cardboard, emissiveLedPanel, glossPlastic, mattePlastic,
   paintedSteel, rubber, tintedWindowGlass, weatheredPaintOverConcrete,
@@ -15,9 +16,12 @@ export const DRONE_COLORS = [0xff8a3d, 0x3dd6ff];
 
 export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  draw(canvas.getContext('2d')!);
+  const scale = Math.min(1, textureSettings.canvasSize / Math.max(w, h));
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const context = canvas.getContext('2d')!;
+  context.scale(canvas.width / w, canvas.height / h);
+  draw(context);
   return filterTexture(new THREE.CanvasTexture(canvas), THREE.SRGBColorSpace);
 }
 
@@ -113,8 +117,8 @@ export function strut(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vec
   return mesh;
 }
 
-export function surfaces(renderer: THREE.WebGLRenderer) {
-  setTextureQuality(renderer);
+export function surfaces(renderer: THREE.WebGLRenderer, settings: TierSettings) {
+  setTextureQuality(renderer, settings);
   const loader = new THREE.ImageLoader();
 
   function scan(profile: TiledMaterial['profile'], name: string, metres: number, normalStrength: number, fallback: number): THREE.MeshStandardMaterial {
@@ -127,7 +131,7 @@ export function surfaces(renderer: THREE.WebGLRenderer) {
       const space = suffix === 'diff' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       const primary = filterTexture(new THREE.CanvasTexture(swatch), space, metres);
       const views = channels.map((channel, i) => {
-        const view = i === 0 ? primary : primary.clone();
+        const view = i === 0 ? primary : filterTexture(primary.clone(), space, metres);
         view.name = name + '_' + suffix;
         view.channel = channel;
         return view;

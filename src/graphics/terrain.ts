@@ -4,7 +4,7 @@ import {
   boxGeo, brushedAluminium, canvasTex, finish, groundPlane, mergeCompatible, paintedSteel, planeGeo,
   rubber, seeded, solid, tintedWindowGlass, weatheredPaintOverConcrete, type Surfaces,
 } from './materials';
-import { cellAt, distance, Frame, Instances, pick, unit, type Lot, type Point, type Street } from './terrain-batches';
+import { cellAt, distance, Frame, Instances, TerrainBatches, pick, unit, type Lot, type Point, type Street } from './terrain-batches';
 import { buildCity } from './city';
 import { masonryMaterial } from './architecture-materials';
 
@@ -26,15 +26,6 @@ function hillHeight(x: number, z: number) {
 }
 
 function meadow(scene: THREE.Scene, material: Surfaces['grass']) {
-  const geo = new THREE.PlaneGeometry(2200, 2200, 280, 280);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    pos.setY(i, hillHeight(x, z));
-    uv.setXY(i, x + 2.1 * Math.sin(z * 0.07), -z + 1.8 * Math.sin(x * 0.084));
-  }
-  geo.computeVertexNormals();
   const parkMasks = parks.map(p =>
     'mown += parkStripe(p, vec2(' + p.x.toFixed(2) + ',' + p.z.toFixed(2) + '), vec2(' +
     (p.w / 2).toFixed(2) + ',' + (p.d / 2).toFixed(2) + '), ' + p.angle.toFixed(2) + ');').join('\n');
@@ -57,7 +48,20 @@ function meadow(scene: THREE.Scene, material: Surfaces['grass']) {
   };
   // The scan is asynchronously populated by the shared materials loader.
   material.normalScale.setScalar(0.38);
-  solid(scene, geo, material).castShadow = false;
+  const normal = new THREE.Vector3();
+  for (let cx = -880; cx <= 880; cx += 440) for (let cz = -880; cz <= 880; cz += 440) {
+    const segments = cx === 0 && cz === 0 ? 32 : 48;
+    const geo = new THREE.PlaneGeometry(440, 440, segments, segments).rotateX(-Math.PI / 2).translate(cx, 0, cz);
+    const pos = geo.getAttribute('position'), uv = geo.getAttribute('uv'), normals = geo.getAttribute('normal');
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      pos.setY(i, hillHeight(x, z));
+      uv.setXY(i, x + 2.1 * Math.sin(z * 0.07), -z + 1.8 * Math.sin(x * 0.084));
+      normal.set(hillHeight(x - 1, z) - hillHeight(x + 1, z), 2, hillHeight(x, z - 1) - hillHeight(x, z + 1)).normalize();
+      normals.setXYZ(i, normal.x, normal.y, normal.z);
+    }
+    solid(scene, geo, material).castShadow = false;
+  }
 }
 
 const streetsX = [-329, -270, -214, -111, -79, -30, 32, 76, 151, 221, 278, 333];
@@ -137,18 +141,21 @@ function roadsAndFurniture(scene: THREE.Scene, s: Surfaces, plan: ReturnType<typ
   const random = seeded(4061), stone = paving();
   const curb = new Instances(unit, weatheredPaintOverConcrete(0xffffff));
   const paint = new Instances(unit, finish(0xffffff, 0.92));
-  const pole = new Instances(new THREE.CylinderGeometry(0.76, 1, 1, 12), brushedAluminium(0xffffff));
+  const pole = new Instances(new THREE.CylinderGeometry(0.76, 1, 1, 8), brushedAluminium(0xffffff));
   const hardware = new Instances(unit, paintedSteel(0xffffff));
   const covers = new Instances(new THREE.CylinderGeometry(0.5, 0.5, 1, 24), paintedSteel(0x514e46));
   const cablePoints: number[] = [];
   const streetTrees: Point[] = [], parking: Frame[] = [];
-  const pavingPieces: THREE.BufferGeometry[] = [];
+  const pavingCells = new Map<string, THREE.BufferGeometry[]>();
   const asphaltCells = new Map<string, THREE.BufferGeometry[]>();
-  function roadSurface(w: number, d: number, x: number, z: number, yaw = 0) {
+  function cellPieces(cells: Map<string, THREE.BufferGeometry[]>, x: number, z: number) {
     const key = cellAt(x, z);
-    let pieces = asphaltCells.get(key);
-    if (!pieces) asphaltCells.set(key, pieces = []);
-    pieces.push(planeGeo(w, d).rotateX(-Math.PI / 2).rotateY(yaw).translate(x, 0.021, z));
+    let pieces = cells.get(key);
+    if (!pieces) cells.set(key, pieces = []);
+    return pieces;
+  }
+  function roadSurface(w: number, d: number, x: number, z: number, yaw = 0) {
+    cellPieces(asphaltCells, x, z).push(planeGeo(w, d).rotateX(-Math.PI / 2).rotateY(yaw).translate(x, 0.021, z));
   }
   for (const node of plan.nodes.values()) roadSurface(node.w, node.d, node.x, node.z);
   for (const { frame, length, width, startTrim, endTrim, axisX } of plan.roads) {
@@ -159,7 +166,7 @@ function roadsAndFurniture(scene: THREE.Scene, s: Surfaces, plan: ReturnType<typ
     // Leave the corners open so crossings join the pavements on both sides.
     for (const side of [-1, 1]) {
       const c = frame.at(side * (half + sidewalk / 2), mid);
-      pavingPieces.push(boxGeo(sidewalk, 0.116, drive - sidewalk * 2).rotateY(frame.yaw).translate(c.x, 0.058, c.z));
+      cellPieces(pavingCells, c.x, c.z).push(boxGeo(sidewalk, 0.116, drive - sidewalk * 2).rotateY(frame.yaw).translate(c.x, 0.058, c.z));
       const curbLength = (drive - 0.08) / Math.ceil(drive / 1.9);
       for (let i = 0; i < Math.ceil(drive / 1.9); i++) {
         const t = first + 0.04 + (i + 0.5) * curbLength;
@@ -219,13 +226,15 @@ function roadsAndFurniture(scene: THREE.Scene, s: Surfaces, plan: ReturnType<typ
   }
   // Pavement corners carry through at the same height, leaving the asphalt junction clear.
   for (const { x, z, w, d } of plan.nodes.values()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    pavingPieces.push(boxGeo(2.35, 0.114, 2.35).translate(x + sx * (w / 2 + 1.175), 0.057, z + sz * (d / 2 + 1.175)));
+    cellPieces(pavingCells, x, z).push(boxGeo(2.35, 0.114, 2.35).translate(x + sx * (w / 2 + 1.175), 0.057, z + sz * (d / 2 + 1.175)));
   }
   for (const cell of asphaltCells.values()) solid(scene, mergeCompatible(cell), s.asphalt).castShadow = false;
-  solid(scene, mergeCompatible(pavingPieces), stone).castShadow = false;
+  for (const cell of pavingCells.values()) solid(scene, mergeCompatible(cell), stone).castShadow = false;
   const wires = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(cablePoints, 3));
   scene.add(new THREE.LineSegments(wires, new THREE.LineBasicMaterial({ color: 0x494640 })));
-  paint.build(scene, false); covers.build(scene, false); curb.build(scene); pole.build(scene); hardware.build(scene);
+  paint.build(scene, false);
+  pole.build(scene, true, true);
+  for (const fittings of [covers, curb, hardware]) fittings.build(scene, false, true);
   buildCars(scene, parking, random);
   return streetTrees;
 }
@@ -279,12 +288,14 @@ function buildCars(scene: THREE.Scene, spaces: Frame[], random: () => number) {
     f.add(trim, 0, 0.53, 2.12, 0.72, 0.16, 0.035, 0x353c3f);
     f.add(trim, 0, 0.55, -2.17, 0.46, 0.12, 0.026, 0xe8e9d9);
   }
-  for (const b of [body, glass, wheels, hubs, trim]) b.build(scene);
+  body.build(scene);
+  glass.build(scene, false);
+  for (const fittings of [wheels, hubs, trim]) fittings.build(scene, false, true);
 }
 
-function leafCluster(seed: number, distant = false) {
+function leafCluster(seed: number, detail: 'full' | 'reduced' | 'silhouette') {
   const random = seeded(seed);
-  const core = new THREE.IcosahedronGeometry(0.78, 2);
+  const core = new THREE.IcosahedronGeometry(0.78, detail === 'full' ? 2 : detail === 'reduced' ? 1 : 0);
   const position = core.getAttribute('position');
   const vertices: number[] = [], colors: number[] = [];
   function vertex(x: number, y: number, z: number, light: number) {
@@ -300,7 +311,8 @@ function leafCluster(seed: number, distant = false) {
   }
   // Sculpt the outer shoots as small, folded leaf sprays. Their gaps survive
   // the depth and shadow passes without an alpha-tested billboard.
-  for (let i = 0; i < (distant ? 16 : 108); i++) {
+  const sprays = detail === 'full' ? 108 : detail === 'reduced' ? 4 : 0;
+  for (let i = 0; i < sprays; i++) {
     const y = random() * 2 - 1, theta = random() * tau, band = Math.sqrt(1 - y * y);
     const x = band * Math.cos(theta), z = band * Math.sin(theta);
     const r = 0.80 * surface(0.78 * x, 0.78 * y, 0.78 * z);
@@ -343,10 +355,12 @@ function trees(scene: THREE.Scene, lots: Lot[], roads: Street[], streetTrees: Po
       g.lineTo(x + random() * 3, y + 3 + random() * 25); g.stroke();
     }
   });
-  const timber = new Instances(new THREE.CylinderGeometry(0.72, 1, 1, 9),
+  const timber = new Instances(new THREE.CylinderGeometry(0.72, 1, 1, 7, 1, true),
     new THREE.MeshStandardMaterial({ map: bark, bumpMap: bark, bumpScale: 0.047, roughness: 0.99 }));
   const leaf = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, side: THREE.DoubleSide });
-  const crowns = [7201, 151].map(seed => new Instances(leafCluster(seed), leaf, leafCluster(seed, true)));
+  const crowns = [7201, 151].map(seed => new Instances(
+    leafCluster(seed, 'full'), leaf, leafCluster(seed, 'reduced'), leafCluster(seed, 'silhouette'),
+  ));
   const greens = [0x789051, 0x749258, 0x8a9b56, 0x67825c, 0x94a466, 0x687f48];
   function plant(p: Point, size: number, street: boolean) {
     const angle = random() * tau, species = random();
@@ -421,10 +435,11 @@ function parkPaths(scene: THREE.Scene, s: Surfaces) {
       benches.add(x + 0.20, 0.73, z, 0.065, 0.24, 1.72, 0, 0xdecab2);
     }
   }
-  benches.build(scene); legs.build(scene);
+  benches.build(scene, false, true); legs.build(scene, false, true);
 }
 
 export function buildTerrain(scene: THREE.Scene, s: Surfaces) {
+  const firstBatch = scene.children.length;
   meadow(scene, s.grass);
   const plan = streetPlan();
   const streetTrees = roadsAndFurniture(scene, s, plan);
@@ -436,4 +451,5 @@ export function buildTerrain(scene: THREE.Scene, s: Surfaces) {
   const lots = buildCity(scene, s, plan.roads, paths, inPark);
   parkPaths(scene, s);
   trees(scene, lots, plan.roads, streetTrees, paths);
+  return new TerrainBatches(scene.children.slice(firstBatch));
 }

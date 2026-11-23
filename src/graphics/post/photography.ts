@@ -5,13 +5,14 @@ const vertexShader = /* glsl */`
   varying vec2 vUv;
   void main() {
     vUv = uv;
-    gl_Position = vec4(position.xy, 0.0, 1.0);
+    gl_Position = vec4(position, 1.0);
   }
 `;
 
 const air = /* glsl */`
   uniform sampler2D horizon;
   uniform mat4 viewFromClip, worldFromView;
+  uniform vec2 hazeRange;
 
   vec3 transmittance(float distanceM, float surfaceHeight) {
     // Integral of exp(-height / scaleHeight) per unit of ray length.
@@ -21,7 +22,7 @@ const air = /* glsl */`
     float density = abs(b - a) < 0.001 ? exp(-0.5 * (a + b)) : (exp(-a) - exp(-b)) / (b - a);
     // Aerosols dominate at this altitude. Molecular scattering removes more blue.
     vec3 extinction = vec3(0.000013, 0.000030, 0.000067) + 0.00068 * density;
-    return exp(-distanceM * extinction);
+    return exp(-distanceM * extinction) * (1.0 - smoothstep(hazeRange.x, hazeRange.y, distanceM));
   }
 
   float azimuth(vec3 dir) {
@@ -29,15 +30,16 @@ const air = /* glsl */`
   }
 `;
 
-export function skyBackground(camera: THREE.PerspectiveCamera, sky: THREE.DataTexture, horizon: THREE.Texture, yaw: number) {
-  // Draw at the start of the opaque queue, leaving depth clear for cutouts, glass and rotors.
-  const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+export function skyBackground(
+  camera: THREE.PerspectiveCamera, sky: THREE.DataTexture, horizon: THREE.Texture, yaw: number, hazeRange: THREE.Vector2,
+) {
+  const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).translate(0, 0, 1), new THREE.ShaderMaterial({
     name: 'Daylight sky',
     uniforms: {
-      sky: { value: sky }, horizon: { value: horizon }, yawTurns: { value: yaw / (2 * Math.PI) },
+      hazeRange: { value: hazeRange }, sky: { value: sky }, horizon: { value: horizon }, yawTurns: { value: yaw / (2 * Math.PI) },
       viewFromClip: { value: camera.projectionMatrixInverse }, worldFromView: { value: camera.matrixWorld },
     },
-    depthTest: false, depthWrite: false, toneMapped: false, vertexShader,
+    depthFunc: THREE.LessEqualDepth, depthWrite: false, toneMapped: false, vertexShader,
     fragmentShader: /* glsl */`
       varying vec2 vUv;
       uniform sampler2D sky;
@@ -49,11 +51,12 @@ export function skyBackground(camera: THREE.PerspectiveCamera, sky: THREE.DataTe
         float u = azimuth(dir);
         vec2 skyUv = vec2(u + yawTurns, 0.5 + asin(clamp(dir.y, -1.0, 1.0)) / 3.14159265);
         vec3 color = texture2D(sky, skyUv).rgb;
+        vec3 airlight = texture2D(horizon, vec2(u, 0.5)).rgb;
+        color = mix(airlight, color, smoothstep(0.035, 0.11, dir.y));
         if (dir.y < -0.00001) {
           // Continue the finite terrain to the geometric horizon with the same
           // extinction as the city. Grazing rays converge on the photographed sky.
           float distanceM = max(worldFromView[3].y, 0.1) / -dir.y;
-          vec3 airlight = mix(color, texture2D(horizon, vec2(u, 0.5)).rgb, smoothstep(0.0, 0.055, -dir.y));
           color = mix(airlight, vec3(0.20, 0.148, 0.061), transmittance(distanceM, 0.0));
         }
         gl_FragColor = vec4(color, 1.0);
@@ -61,18 +64,19 @@ export function skyBackground(camera: THREE.PerspectiveCamera, sky: THREE.DataTe
     `,
   }));
   backdrop.frustumCulled = false;
-  backdrop.renderOrder = -Infinity;
+  backdrop.renderOrder = Infinity;
   return backdrop;
 }
 
 export function aerialPerspective(
   camera: THREE.PerspectiveCamera, beauty: THREE.WebGLRenderTarget, ao: THREE.Texture, horizon: THREE.DataTexture,
+  hazeRange: THREE.Vector2,
 ) {
   return new ShaderPass(new THREE.ShaderMaterial({
-    name: 'Aerial perspective',
+    name: 'Aerial perspective', defines: { AMBIENT_OCCLUSION: 1 },
     uniforms: {
       beauty: { value: beauty.texture }, worldDepth: { value: beauty.depthTexture },
-      ambientVisibility: { value: ao }, horizon: { value: horizon },
+      hazeRange: { value: hazeRange }, ambientVisibility: { value: ao }, horizon: { value: horizon },
       viewFromClip: { value: camera.projectionMatrixInverse }, worldFromView: { value: camera.matrixWorld },
     },
     depthTest: false, depthWrite: false, toneMapped: false, vertexShader,
@@ -92,9 +96,11 @@ export function aerialPerspective(
         vec4 view = viewFromClip * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec3 ray = mat3(worldFromView) * (view.xyz / view.w);
         vec3 airlight = texture2D(horizon, vec2(azimuth(ray), 0.5)).rgb;
+        #ifdef AMBIENT_OCCLUSION
         float ao = texture2D(ambientVisibility, vUv).r;
         float light = dot(color, vec3(0.2126, 0.7152, 0.0722));
         color *= mix(1.0, ao, 0.53 * (1.0 - smoothstep(0.55, 2.2, light)));
+        #endif
         gl_FragColor = vec4(mix(airlight, color, transmittance(length(ray), worldFromView[3].y + ray.y)), 1.0);
       }
     `,

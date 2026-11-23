@@ -12,6 +12,7 @@ const { fromHalfFloat, toHalfFloat } = THREE.DataUtils;
 
 export function daylight(
   camera: THREE.PerspectiveCamera, scene: THREE.Scene, sun: THREE.DirectionalLight, hdrSupported: boolean,
+  hazeRange: THREE.Vector2,
 ) {
   scene.background = horizonColor;
   const fill = new THREE.HemisphereLight(0xdbeaff, 0xa59a7b, 1.1);
@@ -123,7 +124,7 @@ export function daylight(
     // Three rebuilds its PMREM cache from this CPU-backed source after context restoration.
     scene.environment = sky;
     initialEnvironment.dispose();
-    scene.add(skyBackground(camera, sky, horizon, yaw));
+    scene.add(skyBackground(camera, sky, horizon, yaw, hazeRange));
     fill.intensity = 0;
   }
   loadEnvironment().catch(error => console.warn('Could not load daylight HDR', error));

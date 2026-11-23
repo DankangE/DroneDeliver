@@ -44,11 +44,11 @@ class Site {
   }
   board(text: string, sub: string, color: string, w: number, h: number, x: number, y: number, z: number) {
     this.block(w + 0.09, h + 0.09, 0.13, this.m.frame, x, y, z);
-    solid(this.root, new THREE.PlaneGeometry(w, h), signMaterial(text, sub, color), x, y, z + 0.07);
+    solid(this.root, new THREE.PlaneGeometry(w, h), signMaterial(text, sub, color), x, y, z + 0.07).castShadow = false;
   }
   window(x: number, y: number, z: number, w: number, h: number, pale = false) {
     this.block(w + 0.10, h + 0.12, 0.14, this.m.frame, x, y, z);
-    this.block(w, h, 0.036, pale ? this.m.curtain : this.m.glass, x, y, z + 0.084);
+    this.block(w, h, 0.036, pale ? this.m.curtain : this.m.glass, x, y, z + 0.084).castShadow = false;
     this.block(0.049, h, 0.051, this.m.zinc, x + w * 0.14, y, z + 0.110);
     this.block(w + 0.19, 0.08, 0.24, this.m.chalk, x, y - h / 2 - 0.08, z + 0.05);
   }
@@ -80,9 +80,11 @@ class Site {
   // Consolidate the static envelope per material. Keep the gameplay ink separate.
   addTo(scene: THREE.Scene) {
     const cells = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const casters = new Set<THREE.Material>();
     this.root.updateMatrixWorld(true);
     this.root.traverse(part => {
       if (!(part instanceof THREE.Mesh) || !(part.material instanceof THREE.Material)) return;
+      if (part.castShadow) casters.add(part.material);
       let group = cells.get(part.material);
       if (!group) cells.set(part.material, group = []);
       // Bake transforms while retaining the shared vertices of tubes and boxes.
@@ -91,7 +93,9 @@ class Site {
     });
     const site = new THREE.Group(); site.name = this.dest.name;
     scene.add(site);
-    for (const [material, pieces] of cells) solid(site, mergeCompatible(pieces), material);
+    for (const [material, pieces] of cells) {
+      solid(site, mergeCompatible(pieces), material).castShadow = casters.has(material);
+    }
   }
 }
 

@@ -11,7 +11,7 @@ export function rounded(parent: THREE.Object3D, w: number, h: number, d: number,
   const key = [w, h, d, r].join('/');
   let geometry = moldings.get(key);
   if (!geometry) {
-    geometry = new RoundedBoxGeometry(w, h, d, 3, r);
+    geometry = new RoundedBoxGeometry(w, h, d, r < 0.012 ? 1 : 2, r);
     const uv = geometry.getAttribute('uv'), perFace = uv.count / 6;
     for (let i = 0; i < uv.count; i++) {
       const axis = Math.floor(i / (2 * perFace));
@@ -23,7 +23,7 @@ export function rounded(parent: THREE.Object3D, w: number, h: number, d: number,
 }
 
 export function turned(parent: THREE.Object3D, profile: [number, number][], mat: THREE.Material, x = 0, y = 0, z = 0) {
-  const geometry = new THREE.LatheGeometry(profile.map(([r, h]) => new THREE.Vector2(r, h)), 48);
+  const geometry = new THREE.LatheGeometry(profile.map(([r, h]) => new THREE.Vector2(r, h)), 32);
   const uv = geometry.getAttribute('uv');
   const circumference = tau * Math.max(...profile.map(([r]) => r));
   let distance = 0;
@@ -36,7 +36,7 @@ export function turned(parent: THREE.Object3D, profile: [number, number][], mat:
 
 export function rod(parent: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, r1: number, r2: number, mat: THREE.Material) {
   const axis = to.clone().sub(from);
-  const geometry = new THREE.CylinderGeometry(r2, r1, axis.length(), 24);
+  const geometry = new THREE.CylinderGeometry(r2, r1, axis.length(), 16);
   const uv = geometry.getAttribute('uv');
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * tau * (r1 + r2) / 2, uv.getY(i) * axis.length());
   const mesh = solid(parent, geometry, mat);
@@ -56,7 +56,7 @@ export function hose(parent: THREE.Object3D, points: THREE.Vector3[], radius: nu
 // A flanged head with a recessed six-lobe drive, including the walls of the socket.
 const screwGeometry = (() => {
   const xyz: number[] = [], index: number[] = [];
-  const sides = 48;
+  const sides = 24;
   for (const [radius, height, socket] of [[1, -0.15, 0], [1, 0.04, 0], [0.84, 0.22, 0], [0.42, 0.22, 1], [0.37, -0.08, 1], [0, -0.08, 0]]) {
     for (let i = 0; i < sides; i++) {
       const a = tau * i / sides;

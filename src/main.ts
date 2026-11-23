@@ -256,7 +256,7 @@ function frame(now: number) {
   world.update(sim, realDt);
   if (onTitle || paused) syncQualityMenu();
   if (!onTitle) updateHud(sim, realDt * timeScale, realDt);
-  world.render();
+  world.render(now);
   requestAnimationFrame(frame);
 }
 
