@@ -27,7 +27,10 @@ const browser = await chromium.launch({
   headless: process.env.HEADED !== '1',
   executablePath: process.env.CHROME_PATH,
   channel: process.env.CHROME_PATH ? undefined : 'chrome',
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
+  // Real GPU by default (Metal on macOS); PLAYTEST_GL=swiftshader forces the software renderer.
+  args: [...(process.env.PLAYTEST_GL === 'swiftshader'
+    ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+    : ['--use-angle=metal', '--ignore-gpu-blocklist']), '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
@@ -48,6 +51,13 @@ async function shot(name) {
   }
   console.log('  screenshot', file);
 }
+
+// Frames per second over `ms` of real time (information only).
+const fps = (ms = 3000) => page.evaluate((ms) => new Promise((done) => {
+  let n = 0; const t0 = performance.now();
+  const tick = () => { n++; if (performance.now() - t0 < ms) requestAnimationFrame(tick); else done(Math.round((n * 1000) / (performance.now() - t0))); };
+  requestAnimationFrame(tick);
+}), ms);
 
 async function press(key) { await page.keyboard.press(key); await wait(40); }
 async function holdKey(key, ms) { await page.keyboard.down(key); await wait(ms); await page.keyboard.up(key); }
@@ -136,7 +146,7 @@ async function loadDrone(s) {
   await ensureWalk();
   await g((slot) => window.__game.goto(`shelf:${slot}`), order.slot);
   await wait(80);
-  if (!results.baseShot) { results.baseShot = true; await shot('02-base-first-person'); }
+  if (!results.baseShot) { results.baseShot = true; await shot('02-base-first-person'); results.fpsBase = await fps(); }
   await press('e');
   await g((i) => window.__game.goto(`pad:${i}`), free.idx);
   await wait(80);
@@ -155,6 +165,7 @@ async function launchReady(s) {
     results.flightShot = true;
     await wait(4500 / speedNow);
     await shot('04-console-flight');
+    results.fpsFlight = await fps(2000);
   }
   return true;
 }
