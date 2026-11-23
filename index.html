@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Skyhook Depot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23ffd23f'/%3E%3Cpath d='M3 4h10M3 12h10M8 4v8' stroke='%23111' stroke-width='2'/%3E%3C/svg%3E" />
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="drones" class="panel-col"></div>
+  <div id="topbar">
+    <div class="stage-name" id="stage-name"></div>
+    <div class="score-row"><span id="score">0</span><span class="slash">/</span><span id="target">0</span><span class="unit">PTS</span></div>
+    <div class="bar"><div id="score-fill"></div></div>
+    <div class="meta-row"><span id="clock">0:00</span><span id="combo"></span><span id="wind"></span></div>
+  </div>
+  <div id="right" class="panel-col">
+    <div class="panel">
+      <div class="panel-title">ORDERS</div>
+      <div id="orders"></div>
+    </div>
+    <div id="feed"></div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="prompt"><span id="prompt-text"></span><div id="hold-ring"><div id="hold-fill"></div></div></div>
+  <div id="objective"><span class="tag">NEXT</span><span id="objective-text"></span></div>
+  <div id="carry"></div>
+  <div id="keys"></div>
+  <div id="banner"></div>
+  <div id="popups"></div>
+
+  <div id="console-ui" class="hidden">
+    <div id="feed-frame"></div>
+    <div id="feed-head"><span class="rec">● LIVE</span><span id="feed-title"></span></div>
+    <div id="drone-tabs"></div>
+    <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
+    <div id="guide"></div>
+    <canvas id="minimap" width="240" height="240"></canvas>
+  </div>
+</div>
+
+<div id="screen" class="screen">
+  <div class="card" id="screen-card"></div>
+</div>
+
+<div id="small-screen" class="screen">
+  <div class="card">
+    <h1>Desktop required</h1>
+    <p>Skyhook Depot is a first-person game played with a keyboard and mouse. Open it on a desktop or laptop browser with a window at least 900 px wide.</p>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
