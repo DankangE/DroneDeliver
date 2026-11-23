@@ -1,6 +1,6 @@
 import './style.css';
 import * as THREE from 'three';
-import { BASE, STAGES } from './config';
+import { BASE, PRODUCTS, SCORE, STAGES } from './config';
 import { initAudio, play, setHum, toggleMute } from './audio';
 import { handleEvent, resetHud, updateHud } from './hud';
 import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
@@ -38,7 +38,7 @@ function bind(id: string, fn: () => void) { document.getElementById(id)?.addEven
 const CONTROLS = `<div class="ctrl">
   <kbd>W A S D</kbd><span>기지 안 이동 · 콘솔에서는 드론 조종</span>
   <kbd>마우스</kbd><span>둘러보기 (화면을 클릭하면 마우스 고정, ← →로도 회전)</span>
-  <kbd>E</kbd><span>물건 담기 · 포장 확인 · 봉인 · 드론 연결 · 콘솔 앉기<br>배터리 교체 · 길게 눌러 로터 수리</span>
+  <kbd>E</kbd><span>꺼내기 · 담기 · 포장 확인 · 봉인 · 드론 연결 · 콘솔 앉기<br>배터리 교체 · 길게 눌러 로터 수리</span>
   <kbd>Space</kbd><span>콘솔에서 출발 · 택배 투하 · 착륙 시작</span>
   <kbd>F</kbd><span>콘솔에서 길게 눌러 GPS 재보정</span>
   <kbd>1 2 Tab</kbd><span>드론 화면 전환</span>
@@ -79,7 +79,7 @@ function showTitle() {
   hudEl.classList.add('hidden');
   showCard(`<div class="logo">하늘길 택배</div>
     <h1>드론 배송 관제사</h1>
-    <p>주문한 물건을 선반에서 찾아 상자에 담으세요. 포장을 확인하고 봉인한 상자를 드론에 연결하면 출발 준비가 끝납니다. 콘솔에서 배송을 마치고 다음 주문을 준비하세요.</p>
+    <p>라면 두 개와 생수 한 병을 주문한 이웃이 기다립니다. 선반에서 주문 상품을 꺼내 포장대에 담고, 수량을 확인해 상자를 봉인하세요. 드론에 연결한 뒤 콘솔에서 출발과 투하, 귀환 착륙을 맡으세요.</p>
     ${CONTROLS}
     <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button></div>`);
   mountQualityMenu();
@@ -98,7 +98,7 @@ function showBriefing(stageId: number) {
   showCard(`<h2>스테이지 ${st.id} 브리핑</h2><h1>${st.name}</h1>
     <ul>${st.briefing.map((b) => `<li>${b}</li>`).join('')}</ul>
     <div class="goal"><div><b>${st.target}</b><span>목표 점수</span></div><div><b>${Math.floor(st.timeLimit / 60)}:00</b><span>근무 시간</span></div><div><b>${st.drones}</b><span>드론 대수</span></div></div>
-    <p>배송 1건 100점, 완벽 투하 +60, 우수 +25, 정시 +30. 연속 배송은 최대 x2까지 콤보가 쌓입니다. 투하 실패와 기한 초과는 감점입니다.</p>
+    <p>배송 1건 100점, 완벽 투하 +60, 우수 +25, 정시 +30. 연속 배송은 최대 x2까지 콤보가 쌓입니다. 포장 확인 때 잘못 담거나 부족한 수량 하나당 ${SCORE.packErrorPenalty}점이 깎입니다. 투하 실패와 기한 초과도 감점입니다.</p>
     <div class="btns"><button class="primary" id="b-go">근무 시작</button><button id="b-title">타이틀</button></div>`);
   bind('b-go', begin);
   bind('b-title', showTitle);
@@ -266,16 +266,18 @@ requestAnimationFrame(frame);
 // ------------------------------------------------------------ debug hook (?debug=1)
 
 if (debug) {
-  const spots: Record<string, Target> = { rack: { kind: 'rack' }, console: { kind: 'console' } };
+  const spots: Record<string, Target> = { table: { kind: 'table' }, rack: { kind: 'rack' }, console: { kind: 'console' } };
   const at = (t: Target) => {
     if (t.kind === 'rack') return { x: BASE.batteryRack.x - 1.6, z: BASE.batteryRack.z, yaw: -Math.PI / 2 };
     if (t.kind === 'console') return { x: BASE.console.x, z: BASE.console.z + 1.6, yaw: 0 };
-    if (t.kind === 'shelf') { const p = BASE.shelfSlots[t.slot]; return { x: p.x + 1.6, z: p.z, yaw: Math.PI / 2 }; }
-    const p = BASE.pads[t.idx]; return { x: p.x, z: p.z - 2.4, yaw: Math.PI };
+    if (t.kind === 'table') return { x: BASE.packTable.x + 1.6, z: BASE.packTable.z, yaw: Math.PI / 2 };
+    if (t.kind === 'bay') { const p = BASE.itemBays[t.bay]; return { x: p.x + 1.6, z: p.z, yaw: Math.PI / 2 }; }
+    const p = BASE.pads[t.idx]; return { x: p.x, z: p.z - 1.6, yaw: Math.PI };
   };
   (window as unknown as { __game: unknown }).__game = {
     get sim() { return sim; },
     log,
+    products: PRODUCTS,
     setTimeScale(n: number) { timeScale = n; },
     world,
     /** Test shortcut: attach the oldest waiting order straight onto drone `idx` (skips the depot work). */
@@ -283,7 +285,7 @@ if (debug) {
       const d = sim.drones[idx];
       const o = sim.orders.filter((or) => or.status === 'waiting').sort((a, b) => a.id - b.id)[0];
       if (!d || !o || d.state !== 'pad' || d.orderId != null) return false;
-      o.status = 'loaded'; o.slot = null; d.orderId = o.id;
+      o.status = 'loaded'; d.orderId = o.id;
       return true;
     },
     renderInfo() {
@@ -295,9 +297,9 @@ if (debug) {
     begin,
     goto(name: string) {
       const [kind, idx] = name.split(':');
-      const t: Target = kind === 'shelf' ? { kind: 'shelf', slot: Number(idx) } : kind === 'pad' ? { kind: 'pad', idx: Number(idx) } : spots[kind];
+      const t: Target = kind === 'bay' ? { kind: 'bay', bay: Number(idx) } : kind === 'pad' ? { kind: 'pad', idx: Number(idx) } : spots[kind];
       const p = at(t);
-      sim.player.x = p.x; sim.player.z = p.z; sim.player.yaw = p.yaw; sim.player.pitch = -0.35;
+      sim.player.x = p.x; sim.player.z = p.z; sim.player.yaw = p.yaw; sim.player.pitch = t.kind === 'bay' ? -0.06 : t.kind === 'table' ? -0.5 : -0.35;
     },
     trigger(kind: 'battery' | 'gps' | 'motor' | 'order', droneIdx = 0) {
       const d = sim.drones[droneIdx];
@@ -318,9 +320,9 @@ if (debug) {
     },
     snapshot() {
       return {
-        phase: sim.phase, stage: sim.stage.id, time: +sim.time.toFixed(2), score: sim.score, mode: sim.player.mode, carrying: sim.player.carrying, target: sim.target,
+        phase: sim.phase, stage: sim.stage.id, time: +sim.time.toFixed(2), score: sim.score, mode: sim.player.mode, carrying: sim.player.carrying, box: sim.box, target: sim.target, targetScore: sim.stage.target,
         drones: sim.drones.map((d) => ({ idx: d.idx, state: d.state, fault: d.fault, battery: +d.battery.toFixed(1), orderId: d.orderId, pos: { x: +d.pos.x.toFixed(1), y: +d.pos.y.toFixed(1), z: +d.pos.z.toFixed(1) } })),
-        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, status: o.status, slot: o.slot })),
+        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, status: o.status, items: o.items, deadline: o.deadline })),
         stats: sim.stats,
       };
     },

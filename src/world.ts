@@ -4,6 +4,7 @@ import { needsAttention, objective, predictImpact, type Drone, type Sim } from '
 import { buildDepot } from './graphics/depot';
 import { buildDestinations } from './graphics/destinations';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
+import { displayContents, packingStation, productModel, stockShelves } from './graphics/packing';
 import { crateModel } from './graphics/crate';
 import { canvasTex, ink, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
@@ -23,6 +24,9 @@ export class World {
   private held = new THREE.Group();
   private heldCrate = new THREE.Group();
   private heldBattery: THREE.Group;
+  private heldItem = new THREE.Group();
+  private packing: ReturnType<typeof packingStation>;
+  private contentsKey = '';
   private marker: THREE.Mesh;
   private impact: THREE.Mesh;
   private padOffline: THREE.Mesh;
@@ -41,11 +45,16 @@ export class World {
     buildTerrain(this.scene, this.materials);
     const marks = this.pipeline.markings;
     buildDepot(this.scene, marks, this.materials);
+    stockShelves(this.scene);
+    this.packing = packingStation(this.materials);
+    this.scene.add(this.packing.station);
     this.labels = buildDestinations(this.scene, marks, this.materials);
 
     this.heldCrate.scale.setScalar(0.8);
     this.heldBattery = batteryPack(this.materials.metal);
-    this.held.add(this.heldCrate, this.heldBattery);
+    this.heldItem.scale.setScalar(1.32);
+    this.heldItem.rotation.set(0.08, -0.35, -0.12);
+    this.held.add(this.heldCrate, this.heldBattery, this.heldItem);
     this.held.position.set(0.32, -0.42, -0.85);
     this.camera.add(this.held);
     this.scene.add(this.camera);
@@ -88,7 +97,7 @@ export class World {
     const key = code + '/' + variant;
     let model = this.crateModels.get(key);
     if (!model) {
-      model = crateModel(code, color, variant, this.materials);
+      model = crateModel(code, color, variant);
       this.crateModels.set(key, model);
     }
     return model.clone();
@@ -105,7 +114,20 @@ export class World {
     s.drones.forEach((d, i) => this.updateDrone(d, this.drones[i], dt));
     this.updateCrates(s, dt);
 
+    this.packing.carton.visible = !!s.box;
+    const contentsKey = s.box?.contents.join('/') ?? '';
+    if (this.contentsKey !== contentsKey) {
+      displayContents(this.packing.contents, s.box?.contents ?? []);
+      this.contentsKey = contentsKey;
+    }
+
     const carry = s.player.carrying;
+    this.heldItem.visible = carry?.kind === 'item';
+    if (carry?.kind === 'item' && this.heldItem.name !== carry.product) {
+      this.heldItem.clear();
+      this.heldItem.add(productModel(carry.product));
+      this.heldItem.name = carry.product;
+    }
     this.held.visible = s.player.mode === 'walk' && carry != null;
     this.heldBattery.visible = carry?.kind === 'battery';
     this.heldCrate.visible = carry?.kind === 'crate';
@@ -164,10 +186,7 @@ export class World {
     const seen = new Set<number>();
     for (const o of s.orders) {
       let pos: THREE.Vector3 | null = null;
-      if (o.status === 'waiting' && o.slot != null) {
-        const sl = BASE.shelfSlots[o.slot];
-        pos = new THREE.Vector3(sl.x, 1.0, sl.z);
-      } else if (o.status === 'loaded' || o.status === 'flying') {
+      if (o.status === 'loaded' || o.status === 'flying') {
         const pk = s.packages.find((p) => p.orderId === o.id);
         const d = s.drones.find((dr) => dr.orderId === o.id);
         if (pk) pos = new THREE.Vector3(pk.pos.x, Math.max(0.35, pk.pos.y), pk.pos.z);

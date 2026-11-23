@@ -1,3 +1,18 @@
+export type ProductId = 'ramen' | 'water' | 'lettuce' | 'eggs' | 'milk' | 'apple';
+export interface Product { id: ProductId; name: string; unit: string; color: number }
+
+export const PRODUCTS: Product[] = [
+  { id: 'ramen', name: '라면', unit: '개', color: 0xe56037 },
+  { id: 'water', name: '생수', unit: '병', color: 0x73c9ea },
+  { id: 'lettuce', name: '상추', unit: '통', color: 0x76ac50 },
+  { id: 'eggs', name: '계란', unit: '판', color: 0xd3aa7f },
+  { id: 'milk', name: '우유', unit: '팩', color: 0x4b80c8 },
+  { id: 'apple', name: '사과', unit: '개', color: 0xcd4137 },
+];
+
+export const productById = (id: ProductId) => PRODUCTS.find((product) => product.id === id)!;
+export const bayLetter = (bay: number) => String.fromCharCode(65 + bay);
+
 export interface StageDef {
   id: number;
   name: string;
@@ -7,6 +22,8 @@ export interface StageDef {
   orderInterval: number;
   maxPending: number;
   orderDeadline: number;
+  orderLines: [number, number];
+  orderUnits: [number, number];
   windBase: number;
   faultChance: number;
   briefing: string[];
@@ -17,16 +34,19 @@ export const STAGES: StageDef[] = [
     id: 1,
     name: '주간 근무 — 드론 1대',
     drones: 1,
-    target: 450,
-    timeLimit: 420,
-    orderInterval: 22,
-    maxPending: 3,
-    orderDeadline: 120,
+    target: 620,
+    timeLimit: 360,
+    orderInterval: 52,
+    maxPending: 2,
+    orderDeadline: 165,
+    orderLines: [2, 3],
+    orderUnits: [3, 4],
     windBase: 1.2,
     faultChance: 0.15,
     briefing: [
       '하늘길 택배 기지의 1번 패드를 맡았습니다. 드론 1대, 운영자는 당신 한 명.',
-      '주문이 들어오면 화물 선반에서 해당 상자를 들고 드론에 실은 뒤, 관제 콘솔에서 비행시키세요.',
+      '주문 목록을 확인하고 포장대에서 상자를 여세요. 선반에서 물건을 하나씩 꺼내 포장대 상자에 담으세요.',
+      '빈손으로 포장 확인을 한 뒤 상자를 봉인하세요. 패드에서 드론에 연결하고 관제 콘솔에서 출발시키세요.',
       '바람을 보며 목표 링에 택배를 투하하고, 돌아온 드론을 패드에 착륙시키세요.',
       '배터리가 부족하면 충전 거치대에서 교체하고, 고장은 그때그때 처리하세요.',
     ],
@@ -35,16 +55,19 @@ export const STAGES: StageDef[] = [
     id: 2,
     name: '러시아워 — 드론 2대',
     drones: 2,
-    target: 1000,
-    timeLimit: 480,
-    orderInterval: 13,
-    maxPending: 4,
-    orderDeadline: 105,
+    target: 1460,
+    timeLimit: 360,
+    orderInterval: 30,
+    maxPending: 3,
+    orderDeadline: 150,
+    orderLines: [2, 3],
+    orderUnits: [3, 5],
     windBase: 2.2,
     faultChance: 0.25,
     briefing: [
       '2번 패드가 열렸습니다. 이제 드론 2대를 동시에 운영합니다.',
-      '한 대가 비행하는 동안 다른 한 대에 짐을 실으세요. 콘솔에서 1 / 2 또는 Tab으로 화면을 전환합니다.',
+      '한 대가 비행하는 동안 다음 주문을 확인하세요. 선반에서 물건을 하나씩 꺼내 포장대 상자에 담으세요.',
+      '포장 확인 후 봉인한 상자를 빈 드론에 연결하세요. 콘솔에서 출발시키고 1 / 2 또는 Tab으로 드론을 전환하세요.',
       '바람이 더 세고 고장이 잦습니다. 주문 마감도 더 빠릅니다.',
       '제자리 비행 중에도 배터리는 닳습니다. 두 드론의 상태 카드를 계속 확인하세요.',
     ],
@@ -93,6 +116,7 @@ export const SCORE = {
   expiredPenalty: 40,
   missPenalty: 20,
   crashPenalty: 60,
+  packErrorPenalty: 10,
   comboStep: 0.25,
   comboMax: 2,
   perfectRadius: 2,
@@ -108,12 +132,16 @@ export const BASE = {
     { x: 6, z: 14 },
   ],
   console: { x: 0, z: -7.6 },
-  shelfSlots: [
-    { x: -11, z: -5 },
-    { x: -11, z: -2.5 },
-    { x: -11, z: 0 },
-    { x: -11, z: 2.5 },
+  itemBays: [
+    { x: -11, z: -5.6 },
+    { x: -11, z: -4.0 },
+    { x: -11, z: -2.4 },
+    { x: -11, z: -0.8 },
+    { x: -11, z: 0.8 },
+    { x: -11, z: 2.4 },
   ],
+  shelfLevels: [0.72, 1.42],
+  packTable: { x: -6.4, z: -1.6 },
   batteryRack: { x: 11, z: -1 },
   playerStart: { x: 0, z: 1, yaw: Math.PI },
   walkSpeed: 5.2,
