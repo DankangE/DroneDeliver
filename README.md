@@ -110,8 +110,12 @@ Last runs in headless Chrome 1280x720 (2026-11-23), all values in game seconds:
 | B | 33.2, 37.1 | 35.9, 37.0, 32.3 | clear 713/450 in 97.9 s | clear 1046/1000 in 72.7 s |
 | C (Stage 2 only) | — | 35.6, 33.5 | — | clear 1046/1000 in 71.5 s |
 | D | 32.0, 38.1 | 33.4, 31.0, 34.2 | clear 713/450 in 97.8 s | clear 1046/1000 in 82.2 s |
+| E (realism pass) | 33.1, 45.6 | 31.7, 32.4, 34.1 | clear 713/450 in 110.9 s | clear 1046/1000 in 77.4 s |
+| F (realism pass) | 32.1, 37.2 | 34.7, 32.2, 33.5 | clear 713/450 in 100.8 s | clear 1046/1000 in 79.7 s |
 
-The 16 measured round trips ran from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s.
+Runs A–D (before the realism pass) measured 16 round trips from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s. Runs E–F use the realism renderer; the game rules are unchanged. The one outlier, 45.6 s in run E, had a GPS fault and a random rotor fault on the same flight; every other trip ran 31.7–37.2 s.
+
+Frame rate in the playtest's headless Chrome on an Apple M5 (Metal), 1280x720, after the realism pass: about **36 FPS** in the depot and **41 FPS** at the flight console (`fpsBase` / `fpsFlight` in the playtest output). This is information only; graphics settings are not tuned for lower-end GPUs yet.
 
 Events, all resolved by the bot:
 
@@ -137,7 +141,27 @@ Screenshots (`docs/screenshots/`):
 | ![Stage 2 clear](docs/screenshots/12-stage2-clear.png) | ![Stage failed](docs/screenshots/13-stage-failed.png) |
 | ![Stage 2 briefing](docs/screenshots/09-briefing-stage2.png) | ![Phone-width notice](docs/screenshots/14-phone-notice.png) |
 
-Options: `CHROME_PATH=/path/to/chrome`, `PLAYTEST_SPEED=1` (all real time), `PLAYTEST_ONLY=1|2`, `HEADED=1`.
+Options: `CHROME_PATH=/path/to/chrome`, `PLAYTEST_SPEED=1` (all real time), `PLAYTEST_ONLY=1|2`, `HEADED=1`, `PLAYTEST_GL=swiftshader` (software rendering instead of the default Metal GPU backend).
+
+## Graphics
+
+The renderer aims at photorealism:
+
+- **Lighting.** A CC0 HDRI sky lights the scene through PMREM image-based lighting. The sun is aligned with the HDRI. There are three stabilized soft-shadow cascades, plus height fog and aerial scattering tinted from the HDRI horizon.
+- **Post-processing.** GTAO ambient occlusion, restrained bloom, AgX exposure and grading, a vignette and subtle lens effects, and SMAA. Output is sRGB. Gameplay markers (pads, drop rings, destination labels) render after grading, so they stay readable.
+- **Materials.** Scanned CC0 PBR surfaces (diffuse, normal, packed AO/roughness/metalness) with anti-tiling cover the ground, roads, depot floor, plywood and metal. They are backed by a preset library for painted steel, rubber, glass, carbon, plastic, aluminium, LEDs and cardboard.
+- **Models.** The drone is detailed: moulded shell, carbon arms, folding hinges, motors, twisted props with blur discs, Korean livery, gimbal camera, winch and nav lights. In the depot, the racking, kraft parcels with Korean barcode labels, charging docks, the three-monitor console and the clad hangar are modelled. Outside, the Korean town has varied façades, roofs, trees, cars and crosswalks, and each destination has its own landmark.
+
+Code lives in `src/graphics/` (`pipeline.ts` and `post/`, `materials.ts` and `materials/`, `drone.ts` and `drone/`, `depot.ts`, `crate.ts`, `terrain.ts`, `city.ts`, `destinations.ts`).
+
+Before and after (`docs/screenshots/realism/`):
+
+| Before | After |
+| --- | --- |
+| ![Depot before](docs/screenshots/realism/before-base-first-person.png) | ![Depot after](docs/screenshots/realism/after-base-first-person.png) |
+| ![Console flight before](docs/screenshots/realism/before-console-flight.png) | ![Console flight after](docs/screenshots/realism/after-console-flight.png) |
+| ![Drop view before](docs/screenshots/realism/before-destination-drop.png) | ![Drop view after](docs/screenshots/realism/after-destination-drop.png) |
+| ![Stage 2 before](docs/screenshots/realism/before-stage2-two-drones.png) | ![Stage 2 after](docs/screenshots/realism/after-stage2-two-drones.png) |
 
 ## Localization
 
@@ -149,7 +173,7 @@ Fonts are system Korean fonts first (Apple SD Gothic Neo on macOS, Malgun Gothic
 
 - `src/config.ts` stages, destinations and every tuning number (flight speeds, battery drain, scoring).
 - `src/sim.ts` the whole game as plain state and a `step(sim, input, dt)` function.
-- `src/world.ts` Three.js scene that draws the sim state. `src/hud.ts` DOM HUD, console overlay and minimap. `src/main.ts` screens, input and loop.
+- `src/world.ts` Three.js scene that draws the sim state; `src/graphics/` holds the render pipeline, materials and models (see [Graphics](#graphics)). `src/hud.ts` DOM HUD, console overlay and minimap. `src/main.ts` screens, input and loop.
 - `scripts/playtest.mjs` automated playtest (see above).
 
 ### Debug hook
