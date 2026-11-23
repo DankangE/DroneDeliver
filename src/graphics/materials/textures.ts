@@ -130,6 +130,15 @@ export function grainMaps(kind: Grain) {
 }
 
 /** Keep metric/normalized UVs compatible when baking mixed primitives. */
+function whiteComponent(values: THREE.TypedArray, normalized: boolean): number {
+  if (!normalized) return 1;
+  if (values instanceof Uint8Array || values instanceof Uint8ClampedArray) return 0xff;
+  if (values instanceof Uint16Array) return 0xffff;
+  if (values instanceof Int8Array) return 0x7f;
+  if (values instanceof Int16Array) return 0x7fff;
+  return 1;
+}
+
 export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const templates: THREE.NormalBufferAttributes = {};
   for (const g of pieces) Object.assign(templates, g.attributes);
@@ -137,6 +146,8 @@ export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeo
   const indexed = pieces.some(g => g.index !== null);
   for (const g of pieces) {
     const count = g.getAttribute('position').count;
+    // AO coordinates default to the piece's own primary UVs, never to a single texel.
+    if (templates.uv1) withAoUv(g);
     if (indexed && !g.index) {
       const indices = count > 65535 ? new Uint32Array(count) : new Uint16Array(count);
       for (let i = 0; i < count; i++) indices[i] = i;
@@ -149,6 +160,8 @@ export function mergeCompatible(pieces: THREE.BufferGeometry[]): THREE.BufferGeo
       const values = new ArrayType(count * itemSize);
       // The paint shader falls back to ordinary primitive UVs at this sentinel.
       if (name === 'finishFaceUv') values.fill(-1);
+      // Uncoloured pieces stay white under vertex-coloured materials.
+      if (name === 'color') values.fill(whiteComponent(values, normalized));
       if (template instanceof THREE.InterleavedBufferAttribute) {
         const buffer = new THREE.InterleavedBuffer(values, itemSize);
         g.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, itemSize, 0, normalized));

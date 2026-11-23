@@ -113,10 +113,11 @@ Last runs in headless Chrome 1280x720 (2026-11-23), all values in game seconds:
 | E (realism pass) | 33.1, 45.6 | 31.7, 32.4, 34.1 | clear 713/450 in 110.9 s | clear 1046/1000 in 77.4 s |
 | F (realism pass) | 32.1, 37.2 | 34.7, 32.2, 33.5 | clear 713/450 in 100.8 s | clear 1046/1000 in 79.7 s |
 | G (realism pass) | 33.0, 36.4 | 33.6, 34.5, 35.0 | clear 713/450 in 99.4 s | clear 1046/1000 in 75.0 s |
+| H (realism pass) | 34.0, 38.0 | 31.8, 32.4, 37.2 | clear 713/450 in 101.9 s | clear 1046/1000 in 84.5 s |
 
-Runs A–D (before the realism pass) measured 16 round trips from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s. Runs E–G use the realism renderer; the game rules are unchanged. The one outlier, 45.6 s in run E, had a GPS fault and a random rotor fault on the same flight; every other trip ran 31.7–37.2 s.
+Runs A–D (before the realism pass) measured 16 round trips from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s. Runs E–H use the realism renderer; the game rules are unchanged. The one outlier, 45.6 s in run E, had a GPS fault and a random rotor fault on the same flight; the other 19 trips ran 31.7–38.0 s.
 
-Frame rate in the playtest's headless Chrome on an Apple M5 (Metal), 1280x720, after the realism pass: about **36 FPS** in the depot and **41 FPS** at the flight console (`fpsBase` / `fpsFlight` in the playtest output). This is information only; graphics settings are not tuned for lower-end GPUs yet.
+Frame rate in the playtest's headless Chrome on an Apple M5 (Metal), 1280x720, after the realism pass: about **36 FPS** in the depot and **39–41 FPS** at the flight console (`fpsBase` / `fpsFlight` in the playtest output). This is information only; graphics settings are not tuned for lower-end GPUs yet.
 
 Events, all resolved by the bot:
 
