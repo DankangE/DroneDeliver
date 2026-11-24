@@ -147,8 +147,8 @@ export const DESTINATIONS: Destination[] = [
   { id: 'E5', name: '노을 테라스', x: 120, z: 160, color: 0xba68c8, kind: 'ground', y: 0 },
   { id: 'F6', name: '강변 초등학교', x: -40, z: 205, color: 0xfff176, kind: 'ground', y: 0 },
   { id: 'G7', name: '한빛아파트 옥상', x: -205, z: 8, color: 0x4db6ac, kind: 'roof', y: 18 },
-  { id: 'H8', name: '한빛아파트 베란다', x: -182, z: 46, color: 0xf06292, kind: 'balcony', y: 9 },
-  { id: 'I9', name: '새솔빌라 베란다', x: 122, z: -138, color: 0x9ccc65, kind: 'balcony', y: 9 },
+  { id: 'H8', name: '한빛아파트 베란다', x: -156, z: 40, color: 0xf06292, kind: 'balcony', y: 9 },
+  { id: 'I9', name: '새솔빌라 베란다', x: 93, z: -105, color: 0x9ccc65, kind: 'balcony', y: 9 },
 ];
 
 const GROUND_STOPS = DESTINATIONS.filter(d => d.kind === 'ground').map(d => d.id);

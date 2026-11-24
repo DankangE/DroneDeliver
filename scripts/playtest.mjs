@@ -191,7 +191,7 @@ async function winchDeliver(droneIdx) {
           bottomAt ??= Date.now();
           const waited = (Date.now() - bottomAt) * speedNow / 1000;
           if (!results.winchShot && waited > 0.5) { results.winchShot = true; await shot('19c-stage4-winch'); }
-          if ((err < 0.7 && aim.sway < 0.6) || (waited > 3 && err < 1 && aim.sway < 0.9) || (waited > 8 && err < 1.8) || waited > 14) {
+          if ((err < 0.7 && aim.sway < 0.6) || (waited > 2 && err < 1 && aim.sway < 0.9) || (waited > 4.5 && err < 1.8) || waited > 10) {
             await releaseAll();
             await space(false);
             result = { err: +err.toFixed(2), sway: aim.sway, waited: +waited.toFixed(1) };

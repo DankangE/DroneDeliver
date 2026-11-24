@@ -103,7 +103,7 @@ The first playable build was only the brief's loop: load, launch, drop, land. Af
 - It steers drops and landings using the `?debug=1` hook to read the aim error.
 - It forces a battery-low event (Stage 1) and a rotor fault (Stage 2), and handles the GPS faults that occur.
 - On Stage 3 it packs an ice pack into every cold box and, for fragile orders, lets the drone settle below 0.95 m/s before it drops.
-- On Stage 4 it drops on the roof pad like a ground ring. At a balcony it lines up over the cradle, holds Space, keeps the hook upwind of the cradle by the box's average wind offset, and lets go at cradle height once the box is within 0.7 m and swinging under 0.6 m/s (or later with looser limits).
+- On Stage 4 it drops on the roof pad like a ground ring. At a balcony it lines up over the cradle, holds Space, keeps the hook upwind of the cradle by the box's average wind offset, and lets go at cradle height once the box is within 0.7 m and swinging under 0.6 m/s (after 2 s it accepts 1 m and 0.9 m/s, after 4.5 s anything inside the 2 m ring).
 - It plays all four stages to the end, runs the shift clock out once to check the lose condition, and checks the phone-width notice.
 
 Each stage's first trip runs at real speed. After that the bot runs game time at x3 (`PLAYTEST_SPEED`), so these times are game seconds.
@@ -125,7 +125,7 @@ Runs A–D (before the realism pass) measured 16 round trips from **31.0 to 38.1
 
 Stage 3 run (2026-11-24, all three stages in one run): Stage 1 clear 713/620 in 112.3 s (trips 32.9, 36.9), Stage 2 clear 1806/1460 in 174.5 s (trips 34.5, 37.5, 32.3, 35.3, 35.9), Stage 3 clear 1763/1600 in 160.9 s (trips 32.9, 34.8, 33.9, 34.1). The fragile drops left at 0.1–0.9 m/s; no order went warm.
 
-Stage 4 runs (2026-11-24). Full four-stage run: Stage 1 clear 713/620 (trips 31.9, 37.2), Stage 2 clear 1806/1460, Stage 3 clear 1688/1600, Stage 4 clear 1806/1650 in 179.8 s (trips 33.4, 37.5, 37.2, 36.3, 38.2; that run drew no balcony order). `PLAYTEST_ONLY=4 PLAYTEST_FULL=1` runs, which play the whole 6:00: round trips D4 31.9–35.3 s, A1 34.1–35.6 s, G7 (roof) 33.5–39.4 s, H8 and I9 (balcony) 35.1–40.3 s, so the winch keeps balcony trips at the top of the 30–40 s band. Winch releases landed 0.2–1.0 m from the cradle centre. The bot scored 1893–2043 at its 6th delivery and 3613–3763 at the end, so the target is 1650 (about 84% of the 6th-delivery average).
+Stage 4 runs (2026-11-24, after the balcony round-trip pass). Balcony stops sit closer to the base than the ground stops (H8 about 161 m, I9 about 140 m) because lowering the box and waiting for the swing to settle add 2–8 s at the stop. Three `PLAYTEST_ONLY=4 PLAYTEST_FULL=1` runs, which play the whole 6:00: round trips H8 31.5–38.2 s, I9 30.0–38.6 s, D4 31.9–35.8 s, A1 33.6–35.7 s, G7 (roof) 32.7–37.4 s. Winch releases landed 0.37–0.96 m from the cradle centre. The bot scored 1931–2081 at its 6th delivery (mean 2002) and 3613–4131 at the end, so the target is 1650 (about 82% of the 6th-delivery mean). A four-stage run cleared every stage: 713/620, 1806/1460, 1728/1600, 1943/1650.
 
 How the Stage 3 target was set: with `PLAYTEST_FULL=1` the bot plays the whole shift. Stage 2 reaches 1806 on its 6th delivery (the 1460 target is 81 % of that) and 3706–4086 by the end. Stage 3 reaches 1936 on its 6th delivery and 4116–4241 by the end, so 1600 (83 % of 1936) asks for the same number of deliveries as Stage 2. Order sizes are random, so the score at the clearing delivery varies between runs.
 
