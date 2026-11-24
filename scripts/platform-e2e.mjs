@@ -7,7 +7,8 @@
 //   NG_API=http://localhost:8790 npm run e2e:platform     # API started with ALLOW_LAN_ORIGINS=1 COOKIE_SECURE=0
 //   NG_E2E_SHOTS=/some/dir                                # optional screenshots
 //
-// Refuses any NG_API that is not localhost / 127.0.0.1: it creates accounts.
+// Refuses any NG_API that is not http://localhost:<port>: it creates accounts, and the game is served on
+// localhost, so the API must share that host for its SameSite=Lax session cookie.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -17,8 +18,8 @@ import { build, preview } from 'vite';
 import { chromium } from 'playwright-core';
 
 const API = (process.env.NG_API || '').replace(/\/+$/, '');
-if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(API)) {
-  console.error('NG_API must be a local NalidaGame API, e.g. http://localhost:8790');
+if (!/^http:\/\/localhost(:\d+)?$/.test(API)) {
+  console.error('NG_API must be a local NalidaGame API on localhost (not 127.0.0.1: cookie site), e.g. http://localhost:8790');
   process.exit(2);
 }
 const PORTAL = 'http://localhost:9/portal'; // never reached: requests to it are intercepted
@@ -229,7 +230,7 @@ try {
     step(`play ${status} ${error}: "${r.text}", nickname button ${r.nick ? 'shown' : 'hidden'}, result screen kept`);
   }
 
-  // 11. Logged out in another tab while a shift is paused: 계속하기 shows the expired gate and the shift stops
+  // 11. Logged out in another tab while a shift is paused: resuming (P or 계속하기) shows the expired gate and the shift stops
   //     behind it (it must not keep running and replace the gate with a result screen).
   await page.click('#b-retry');
   await page.click('#b-go');
@@ -238,14 +239,14 @@ try {
   await api('POST', '/v1/auth/logout', {});
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await page.waitForTimeout(500);
-  await page.click('#b-resume');
+  await page.keyboard.press('KeyP'); // resume by keyboard; 계속하기 goes through the same setPaused(false)
   await waitH1('로그인이 만료되었습니다');
   await page.evaluate(() => { const s = window.__game.sim; s.time = s.stage.timeLimit; });
   await page.waitForTimeout(1000);
   const halted = await page.evaluate(() => ({ phase: window.__game.sim.phase, h1: document.querySelector('#screen-card h1')?.textContent }));
   assert.equal(halted.h1, '로그인이 만료되었습니다');
   assert.notEqual(halted.phase, 'playing');
-  step(`logout elsewhere during a paused shift: resume -> expired gate, shift stopped (phase ${halted.phase})`);
+  step(`logout elsewhere during a paused shift: P resume -> expired gate, shift stopped (phase ${halted.phase})`);
 
   assert.deepEqual(errors, []);
   console.log('\nAPI calls:');

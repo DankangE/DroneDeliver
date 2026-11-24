@@ -208,13 +208,14 @@ function finishShift() {
 
 function setPaused(p: boolean) {
   if (sim.phase !== 'playing' || paused === p) return;
+  if (PLATFORM && !p && sessionLost()) return;
   paused = p;
   disarmWinch(sim);
   if (p) {
     if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
     mountQualityMenu();
-    bind('b-resume', () => { if (PLATFORM && sessionLost()) return; setPaused(false); lockPointer(); });
+    bind('b-resume', () => { setPaused(false); if (!PLATFORM || sim.phase === 'playing') lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
     bind('b-title', () => { paused = false; showTitle(); });
   } else hideCard();
@@ -254,7 +255,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (menuOpen && !paused) return;
   if (e.code === 'Escape') { setPaused(true); return; }
-  if (e.code === 'KeyP') { setPaused(!paused); if (!paused) lockPointer(); return; }
+  if (e.code === 'KeyP') { setPaused(!paused); if (!paused && (!PLATFORM || sim.phase === 'playing')) lockPointer(); return; }
   if (e.code === 'KeyM') { toggleMute(); return; }
   if (paused || sim.phase !== 'playing') return;
   if (sim.player.mode === 'walk') {
