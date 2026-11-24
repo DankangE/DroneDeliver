@@ -4,7 +4,7 @@ import { BASE, PRODUCTS, SCORE, STAGES } from './config';
 import { initAudio, play, setHum, toggleMute } from './audio';
 import { handleEvent, resetHud, updateHud } from './hud';
 import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
-import { consolePrimary, createSim, hangingY, interact, leaveConsole, needsAttention, orderById, predictImpact, ropeMax, swaySpeed, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
+import { consolePrimary, createSim, disarmWinch, hangingY, interact, leaveConsole, needsAttention, orderById, predictImpact, ropeMax, swaySpeed, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
 import { World } from './world';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -157,6 +157,7 @@ function showResult() {
 function setPaused(p: boolean) {
   if (sim.phase !== 'playing' || paused === p) return;
   paused = p;
+  disarmWinch(sim);
   if (p) {
     if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
@@ -215,7 +216,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
-window.addEventListener('blur', () => keys.clear());
+window.addEventListener('blur', () => { keys.clear(); disarmWinch(sim); });
 
 function readInput(dt: number): Input {
   const k = (c: string) => (keys.has(c) ? 1 : 0);

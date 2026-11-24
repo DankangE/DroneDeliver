@@ -591,6 +591,12 @@ function startWinch(s: Sim, d: Drone) {
   emit(s, { type: 'log', kind: 'winch-start', drone: d.idx });
 }
 
+/** Input was interrupted (pause, lost focus): forget that Space was down so the next key-up is not read as
+ *  a release. The player presses Space again to re-arm the winch. */
+export function disarmWinch(s: Sim) {
+  for (const d of s.drones) d.winchHeld = false;
+}
+
 /** Pays the rope out while Space is held and swings the box like a pendulum under the hook; letting go
  *  at full rope sets the box down, graded by its distance from the cradle centre. */
 function updateWinch(s: Sim, d: Drone, input: Input, dt: number, o: Order) {

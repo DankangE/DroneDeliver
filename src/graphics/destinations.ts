@@ -405,7 +405,7 @@ function deliveryMark(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, d: De
   }
   if (d.kind === 'roof') roofH(marks, d);
   // Ground: pole beside the ring. Roof: short mast on the roof edge. Balcony: mast on the villa roof.
-  const pole = d.kind === 'ground' ? { x: d.x + 10.5, z: d.z, y0: 0, h: 14 } : d.kind === 'roof' ? { x: d.x + 10.5, z: d.z, y0: d.y, h: 4 } : { x: d.x - d.x / Math.hypot(d.x, d.z) * 6, z: d.z - d.z / Math.hypot(d.x, d.z) * 6, y0: 12.4, h: 4 };
+  const pole = d.kind === 'ground' ? { x: d.x + 10.5, z: d.z, y0: 0, h: 14 } : d.kind === 'roof' ? { x: d.x + 10.5, z: d.z, y0: d.y, h: 4 } : { x: d.x + d.x / Math.hypot(d.x, d.z) * 7.5, z: d.z + d.z / Math.hypot(d.x, d.z) * 7.5, y0: 12.4, h: 4 };
   box(scene, 0.3, pole.h, 0.3, zinc, pole.x, pole.y0 + pole.h / 2, pole.z);
   solid(scene, new THREE.SphereGeometry(0.7, 24, 16), emissiveLedPanel(d.color, 2), pole.x, pole.y0 + pole.h + 0.5, pole.z);
   const map = canvasTex(512, 160, g => {
