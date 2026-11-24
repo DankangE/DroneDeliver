@@ -6,7 +6,7 @@ import { handleEvent, resetHud, updateHud } from './hud';
 import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
 import { consolePrimary, createSim, disarmWinch, hangingY, interact, leaveConsole, needsAttention, orderById, predictImpact, ropeMax, swaySpeed, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
 import { World } from './world';
-import { PLATFORM, bootPlatform, nickname, openNicknamePage, recordShift, sessionOk, shiftStatus, showLeaderboard, stageUnlocked } from './platform';
+import { PLATFORM, bootPlatform, platformHooks, nickname, openNicknamePage, recordShift, sessionOk, shiftStatus, showLeaderboard, stageUnlocked } from './platform';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const hudEl = document.getElementById('hud')!;
@@ -193,7 +193,21 @@ function syncShiftStatus() {
   el.textContent = shiftStatus.text;
   document.getElementById('b-nick')!.hidden = !shiftStatus.nicknameButton;
 }
-if (PLATFORM) shiftStatus.onChange = syncShiftStatus;
+if (PLATFORM) {
+  shiftStatus.onChange = syncShiftStatus;
+  // Progress changed from the server: relabel the stage buttons in place (the title may not be what is on screen).
+  platformHooks.onProgress = () => {
+    for (const n of [2, 3, 4]) {
+      const b = document.getElementById(`b-s${n}`) as HTMLButtonElement | null;
+      if (!b) continue;
+      const open = stageUnlocked(n);
+      b.disabled = !open;
+      b.textContent = open ? `스테이지 ${n} 바로 가기` : `스테이지 ${n} 잠김`;
+    }
+  };
+  // Another tab of this account took over: stop the shift and show the lock card.
+  platformHooks.onLock = () => { sessionLost(); };
+}
 
 function finishShift() {
   if (PLATFORM) {
