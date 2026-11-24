@@ -45,7 +45,6 @@ let sdk: Sdk | null = null;
 let user: User | null = null;
 let lost: '' | 'expired' | 'switched' = '';
 let progress: Progress = { unlocked: 1, best: {} };
-let serverAt = 0;
 
 const int = (v: unknown): number | null => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Math.floor(Number(v)));
 const err = (code: string): ApiError => Object.assign(new Error(code), { code });
@@ -127,7 +126,6 @@ async function attempt() {
     const saved = await timed(sdk.progress.get());
     user = me;
     progress = cleanProgress(saved.data);
-    serverAt = Number(saved.progressAt) || 0;
     sdk.onChange((u) => {
       if (!user) return;
       if (!u) lost = 'expired';
@@ -172,31 +170,45 @@ function setStatus(text: string, nicknameButton = false) {
 
 let saveRetry = 0;
 let saveWait = 0;
-let dirty = false; // local progress the server does not have yet
+let rev = 0; // bumped on every local progress change
+let savedRev = 0; // the revision the server has
+let saveQueue: Promise<unknown> = /* @__PURE__ */ Promise.resolve();
 
-// PUT the whole local progress. The server keeps the newer progressAt: on 409 conflict take the max of both
-// copies and write once more, stamped after the server's copy.
-async function saveProgress(): Promise<void> {
+// Saves run one at a time, so an older reply can never mark newer progress as saved.
+function saveProgress(): Promise<void> {
+  const run = saveQueue.then(putProgress);
+  saveQueue = run.catch(() => {});
+  return run;
+}
+
+// Fetch the server copy and merge it first (another tab or device may have saved since we loaded), then PUT
+// the whole copy stamped after it. If someone still writes in between (409 conflict) merge and write once
+// more; a second conflict counts as a failed save and is retried.
+async function putProgress(): Promise<void> {
   clearTimeout(saveRetry);
-  if (!sdk || !user || lost || !dirty) return;
+  if (!sdk || !user || lost || rev === savedRev) return;
+  const sending = rev;
   try {
-    let at = Math.max(Date.now(), serverAt + 1);
-    let r = await timed(sdk.progress.put(progress, at));
+    const cur = await timed(sdk.progress.get());
+    progress = merge(progress, cleanProgress(cur.data));
+    let r = await timed(sdk.progress.put(progress, Math.max(Date.now(), (Number(cur.progressAt) || 0) + 1)));
     if (r.conflict) {
       progress = merge(progress, cleanProgress(r.data));
-      at = Math.max(Date.now(), (Number(r.progressAt) || 0) + 1);
-      r = await timed(sdk.progress.put(progress, at));
+      r = await timed(sdk.progress.put(progress, Math.max(Date.now(), (Number(r.progressAt) || 0) + 1)));
     }
-    if (r.conflict) progress = merge(progress, cleanProgress(r.data));
-    else { serverAt = Number(r.progressAt) || at; dirty = false; }
+    if (r.conflict) {
+      progress = merge(progress, cleanProgress(r.data));
+      throw err('conflict');
+    }
+    savedRev = sending;
     saveWait = 0;
   } catch (e) {
     const x = e as ApiError;
     if (x.code === 'user_mismatch') lost = 'switched';
-    else if (x.code === 'network') {
-      // Unreachable: keep the progress in memory and retry 15 s, 30 s, ... up to 5 min (also sent with the next shift).
+    else if (x.code === 'network' || x.code === 'conflict') {
+      // Unreachable or busy: keep the progress in memory and retry 15 s, 30 s, ... up to 5 min (also sent with the next shift).
       saveWait = Math.min(300_000, saveWait * 2 || 15_000);
-      saveRetry = window.setTimeout(() => void saveProgress(), saveWait);
+      saveRetry = window.setTimeout(() => void saveProgress().catch(() => {}), saveWait);
     } else if (x.status !== 401) console.error('progress save failed', x);
     throw x;
   }
@@ -219,7 +231,7 @@ export function recordShift(r: ShiftResult) {
   const best: Progress['best'] = { ...progress.best };
   if (score > (best[key] ?? 0)) best[key] = score;
   const unlocked = r.cleared ? Math.max(progress.unlocked, Math.min(STAGE_COUNT, r.stage + 1)) : progress.unlocked;
-  if (unlocked !== progress.unlocked || best[key] !== progress.best[key]) dirty = true;
+  if (unlocked !== progress.unlocked || best[key] !== progress.best[key]) rev++;
   progress = { unlocked, best };
   if (!sdk || !user || lost) return setStatus('로그인이 끊겨 기록을 저장하지 못했습니다.');
   setStatus('기록 저장 중…');

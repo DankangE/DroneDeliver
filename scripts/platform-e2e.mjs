@@ -160,19 +160,43 @@ try {
   assert.deepEqual(locks2, [false, true, true]);
   step('title after clear: stage 2 open, 3-4 locked');
 
-  // 8. Another device saved newer progress: the next save gets 409 conflict, merges (max of both) and retries once.
+  // 8. Another device saved newer progress after this tab loaded: the save fetches and merges it first, so the
+  //    stage 2 clear keeps the other device's unlock and scores (max of both) instead of overwriting them.
+  const gamePuts = () => calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/progress') && c.xNgUser === 'set');
   const other = await api('PUT', '/v1/games/dronedeliver/progress', { data: { unlocked: 3, best: { 2: 2000, 3: 700 } }, progressAt: Date.now() + 60_000 });
-  assert.equal(other.status, 200);
+  assert.equal(other.status, 200, JSON.stringify(other));
   await page.click('#b-s2');
   await page.click('#b-go');
   await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.score = s.stage.target; });
   await waitH1('목표 달성');
   await page.waitForFunction(() => { const t = document.getElementById('ng-status')?.textContent; return t && t !== '기록 저장 중…'; }, null, { timeout: 15000 });
-  const puts = calls.filter((c) => c.method === 'PUT' && c.path.endsWith('/progress')).slice(-2);
+  const merged = gamePuts().at(-1);
+  assert.equal(merged.status, 200);
+  assert.deepEqual(merged.response.data, { unlocked: 3, best: { 1: 620, 2: 2000, 3: 700 } });
+  step(`stage 2 clear after a newer save elsewhere: GET + merge, PUT ${merged.status} ${JSON.stringify(merged.response.data)}, POST plays ${last('POST', '/plays').status}`);
+
+  // 8b. A write that lands between that fetch and the PUT: 409 conflict, merge, write once more.
+  let raced = false;
+  await page.route(`${API}/v1/games/dronedeliver/progress`, async (route) => {
+    if (route.request().method() !== 'PUT' || raced) return route.continue();
+    raced = true;
+    const r = await api('PUT', '/v1/games/dronedeliver/progress', { data: { unlocked: 4, best: { 1: 800 } }, progressAt: Date.now() + 120_000 });
+    assert.equal(r.status, 200, JSON.stringify(r));
+    await route.continue();
+  });
+  await page.click('#b-title');
+  await page.click('#b-s3');
+  await page.click('#b-go');
+  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.score = s.stage.target; });
+  await waitH1('목표 달성');
+  await page.waitForFunction(() => { const t = document.getElementById('ng-status')?.textContent; return t && t !== '기록 저장 중…'; }, null, { timeout: 15000 });
+  await page.unroute(`${API}/v1/games/dronedeliver/progress`);
+  const puts = gamePuts().slice(-2);
   assert.deepEqual(puts.map((c) => c.status), [409, 200]);
-  assert.deepEqual(puts[0].request.data, { unlocked: 3, best: { 1: 620, 2: 1460 } });
-  assert.deepEqual(puts[1].response.data, { unlocked: 3, best: { 1: 620, 2: 2000, 3: 700 } });
-  step(`stage 2 clear after a newer save elsewhere: PUT ${puts.map((c) => c.status).join(' -> ')} ${JSON.stringify(puts[1].response.data)}, POST plays ${last('POST', '/plays').status}`);
+  assert.deepEqual(puts[0].request.data, { unlocked: 4, best: { 1: 620, 2: 2000, 3: 1600 } });
+  assert.deepEqual(puts[1].response.data, { unlocked: 4, best: { 1: 800, 2: 2000, 3: 1600 } });
+  assert.match(await page.textContent('#ng-status'), /랭킹 \d+위/);
+  step(`stage 3 clear with a write racing the save: PUT ${puts.map((c) => c.status).join(' -> ')} ${JSON.stringify(puts[1].response.data)}`);
 
   // 9. A failed shift posts cleared=false and, with nothing new to save, sends no progress.
   const putCount = calls.filter((c) => c.method === 'PUT').length;
@@ -185,7 +209,7 @@ try {
   assert.equal(failPlay.status, 201);
   assert.equal(failPlay.request.cleared, false);
   assert.equal(calls.filter((c) => c.method === 'PUT').length, putCount);
-  step(`stage 2 fail: POST plays ${failPlay.status} (cleared=false), no progress PUT`);
+  step(`stage 3 fail: POST plays ${failPlay.status} (cleared=false), no progress PUT`);
 
   // 10. Play errors keep the result screen: 409 nickname_required offers the nickname page, 429 explains.
   for (const [status, error, expectNick] of [[409, 'nickname_required', true], [429, 'rate_limited', false], [400, 'score_too_high', false]]) {
@@ -205,13 +229,23 @@ try {
     step(`play ${status} ${error}: "${r.text}", nickname button ${r.nick ? 'shown' : 'hidden'}, result screen kept`);
   }
 
-  // 11. Logged out in another tab: the next screen change shows the expired gate.
+  // 11. Logged out in another tab while a shift is paused: 계속하기 shows the expired gate and the shift stops
+  //     behind it (it must not keep running and replace the gate with a result screen).
+  await page.click('#b-retry');
+  await page.click('#b-go');
+  await page.keyboard.press('KeyP');
+  await waitH1('잠시 휴식');
   await api('POST', '/v1/auth/logout', {});
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   await page.waitForTimeout(500);
-  await page.click('#b-title');
+  await page.click('#b-resume');
   await waitH1('로그인이 만료되었습니다');
-  step('logout elsewhere: title -> expired gate');
+  await page.evaluate(() => { const s = window.__game.sim; s.time = s.stage.timeLimit; });
+  await page.waitForTimeout(1000);
+  const halted = await page.evaluate(() => ({ phase: window.__game.sim.phase, h1: document.querySelector('#screen-card h1')?.textContent }));
+  assert.equal(halted.h1, '로그인이 만료되었습니다');
+  assert.notEqual(halted.phase, 'playing');
+  step(`logout elsewhere during a paused shift: resume -> expired gate, shift stopped (phase ${halted.phase})`);
 
   assert.deepEqual(errors, []);
   console.log('\nAPI calls:');

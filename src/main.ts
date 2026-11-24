@@ -80,8 +80,19 @@ const stageButton = (n: number) => (PLATFORM && !stageUnlocked(n)
   ? `<button id="b-s${n}" disabled>스테이지 ${n} 잠김</button>`
   : `<button id="b-s${n}">스테이지 ${n} 바로 가기</button>`);
 
+// Flag on: once the session is gone, show the login gate and stop any shift behind it.
+function sessionLost() {
+  if (sessionOk()) return false;
+  onTitle = true;
+  paused = false;
+  hudEl.classList.add('hidden');
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (sim.phase === 'playing') sim = createSim(sim.stage.id);
+  return true;
+}
+
 function showTitle() {
-  if (PLATFORM && !sessionOk()) return;
+  if (PLATFORM && sessionLost()) return;
   onTitle = true;
   hudEl.classList.add('hidden');
   showCard(`<div class="logo">하늘길 택배</div>
@@ -102,7 +113,7 @@ function showTitle() {
 
 function showBriefing(stageId: number) {
   if (PLATFORM) {
-    if (!sessionOk()) return;
+    if (sessionLost()) return;
     if (!stageUnlocked(stageId)) { showTitle(); return; }
   }
   onTitle = false;
@@ -124,6 +135,7 @@ function showBriefing(stageId: number) {
 }
 
 function begin() {
+  if (PLATFORM && sessionLost()) return;
   hideCard();
   startPlaying(sim);
   paused = false;
@@ -202,7 +214,7 @@ function setPaused(p: boolean) {
     if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
     mountQualityMenu();
-    bind('b-resume', () => { setPaused(false); lockPointer(); });
+    bind('b-resume', () => { if (PLATFORM && sessionLost()) return; setPaused(false); lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
     bind('b-title', () => { paused = false; showTitle(); });
   } else hideCard();
