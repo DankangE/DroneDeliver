@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "verify": "tsc --noEmit && vite build",
     "playtest": "node scripts/playtest.mjs",
-    "fps": "node scripts/fps.mjs"
+    "fps": "node scripts/fps.mjs",
+    "e2e:platform": "node scripts/platform-e2e.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

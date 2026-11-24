@@ -203,3 +203,15 @@ button:hover { filter: brightness(1.12); }
 .order-items span { white-space: nowrap; }
 .order-filled { color: var(--good); }
 .order-short, .order-excess { color: var(--warn); }
+
+/* nalidagame.online (VITE_NG_PLATFORM=1) */
+button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+.btns:has(#b-board) { flex-wrap: wrap; }
+.ng-user, .ng-status, .ng-note { font-size: 13px; color: var(--dim); margin: 12px 0 0; }
+.ng-status { color: var(--cyan); min-height: 1.3em; }
+.lb { width: 100%; border-collapse: collapse; font: 14px/1.3 var(--mono); margin: 12px 0 0; }
+.lb th, .lb td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.lb th { font: 600 11px/1 var(--mono); color: var(--dim); letter-spacing: 0.08em; }
+.lb td:nth-child(3), .lb th:nth-child(3) { text-align: right; }
+.lb td:nth-child(2) { overflow-wrap: anywhere; }
+.lb tr.me td { color: var(--amber); font-weight: 700; }
