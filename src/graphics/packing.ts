@@ -78,6 +78,26 @@ function productTemplate(id: ProductId) {
 
 export const productModel = (id: ProductId) => productTemplate(id).clone();
 
+let icePackTemplate: THREE.Group | undefined;
+/** Translucent blue gel pack with a printed label, about 22 x 15 cm. */
+export function icePackModel() {
+  if (!icePackTemplate) {
+    icePackTemplate = new THREE.Group();
+    const gel = new THREE.MeshStandardMaterial({ color: 0x5fb6f0, transparent: true, opacity: 0.82, roughness: 0.22 });
+    solid(icePackTemplate, new THREE.BoxGeometry(0.22, 0.035, 0.15), gel, 0, 0.0175, 0);
+    const label = ink({ map: canvasTex(256, 160, g => {
+      g.fillStyle = '#eaf6ff'; g.fillRect(0, 0, 256, 160);
+      g.fillStyle = '#1e5f9a'; g.font = `bold 46px ${KO_FONT}`; g.textAlign = 'center'; g.fillText('아이스팩', 128, 78);
+      g.font = `bold 26px ${KO_FONT}`; g.fillText('냉장 화물용', 128, 124);
+    }) });
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.094), label);
+    face.rotation.x = -Math.PI / 2;
+    face.position.y = 0.0355;
+    icePackTemplate.add(face);
+  }
+  return icePackTemplate.clone();
+}
+
 function placard(title: string, accent: number, letter?: string) {
   return ink({ map: canvasTex(512, 128, g => {
     g.fillStyle = '#f5edd9'; g.fillRect(0, 0, 512, 128);
@@ -176,8 +196,12 @@ export function packingStation(s: Surfaces) {
   carton.add(walls);
   const contents = new THREE.Group();
   carton.add(contents);
+  const icePack = icePackModel();
+  icePack.position.set(0.13, 0.205 - 0.035, 0.24);
+  icePack.rotation.set(0, 0.2, 0.18);
+  carton.add(icePack);
   station.add(carton);
-  return { station, carton, contents };
+  return { station, carton, contents, icePack };
 }
 
 export function displayContents(group: THREE.Group, contents: ProductId[]) {

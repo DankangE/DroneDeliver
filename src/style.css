@@ -140,6 +140,19 @@ body:not(.console) .console-telemetry, body:not(.console) #minimap { display: no
 #fix-fill { height: 100%; width: 0; background: var(--cyan); }
 #guide { margin-top: 12px; font: 600 13px/1.4 var(--mono); text-align: center; text-shadow: 0 1px 2px #000; }
 #guide:empty, #action-reason:empty { display: none; }
+#stability { width: min(340px, 100%); margin: 10px auto 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); font: 12px/1.2 var(--mono); }
+.stab-head { display: flex; justify-content: space-between; gap: 10px; color: var(--dim); }
+#stab-value { font-weight: 700; color: var(--bad); }
+#stability.steady #stab-value { color: var(--good); }
+.stab-track { position: relative; height: 10px; margin-top: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; overflow: hidden; }
+#stab-fill { display: block; height: 100%; width: 0; background: var(--bad); }
+#stability.steady #stab-fill { background: var(--good); }
+#stab-limit { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; }
+.order-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 1px 6px; border-radius: 3px; font: 700 11px/1.5 var(--mono); color: #0b1118; }
+.chip.cold { background: #7fd3ff; }
+.chip.fragile { background: #ffc86b; }
+.chip.urgent { background: var(--bad); color: #fff; }
 #minimap { width: min(100%, 30vh, 240px); height: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 
 .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(8, 14, 22, 0.72), rgba(4, 7, 12, 0.94)); z-index: 10; }

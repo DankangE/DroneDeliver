@@ -1,5 +1,5 @@
-import { BASE, DESTINATIONS, FLIGHT, SCORE, productById } from './config';
-import { comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, orderText, packedQty, predictImpact, promptFor, stateLabel, type Drone, type LoopStep, type Sim, type SimEvent } from './sim';
+import { BASE, DESTINATIONS, FLIGHT, SCORE, TAG_LABEL, productById } from './config';
+import { coldLeft, comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, orderText, packedQty, predictImpact, promptFor, stateLabel, type Drone, type LoopStep, type Order, type Sim, type SimEvent } from './sim';
 
 const DRONE_CSS = ['#ff8a3d', '#3dd6ff'];
 const DELIVERY_STEPS = [
@@ -35,6 +35,24 @@ function keyedText(id: string, label: string) {
   cache.set(id, label);
 }
 function cls(id: string, name: string, on: boolean) { $(id).classList.toggle(name, on); }
+
+const STAB_SCALE = 3;
+
+function orderTags(s: Sim, o: Order) {
+  return o.tags.map(tag => {
+    let detail = '';
+    let urgent = false;
+    if (tag === 'cold') {
+      const left = coldLeft(s, o);
+      if (left != null) {
+        detail = left > 0 ? ` · 보냉 ${Math.ceil(left)}초` : ' · 온도 이탈';
+        urgent = left < 20;
+      } else if (s.box?.orderId === o.id) detail = s.box.icePack ? ' · 아이스팩 ✓' : ' · 아이스팩 필요';
+      else detail = ' · 아이스팩';
+    } else detail = ` · ≤ ${SCORE.fragileMaxSpeed} m/s 투하`;
+    return `<span class="chip ${tag}${urgent ? ' urgent' : ''}">${TAG_LABEL[tag]}${detail}</span>`;
+  }).join('');
+}
 
 let slowTimer = 0;
 let bannerTimer = 0;
@@ -189,6 +207,7 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
       <div class="code">${o.dest.id}</div><div class="name">#${o.id} ${o.dest.name}</div>
       <div class="tm ${!flying && left < 25 ? 'urgent' : ''}">${flying ? '✈' : fmtTime(left)}</div>
       <div class="ost">${st}${bonus}<div class="tbar"><i style="width:${pct}%"></i></div></div>
+      ${o.tags.length ? `<div class="order-tags">${orderTags(s, o)}</div>` : ''}
       <div class="order-items">${items}</div>${missing ? `<div class="order-short">직전 확인에서 부족 · ${missing}</div>` : ''}</div>`;
   }).join(''));
 
@@ -200,7 +219,8 @@ export function updateHud(s: Sim, dt: number, realDt: number) {
   } else if (carry?.kind === 'crate') {
     const order = orderById(s, carry.orderId)!;
     carried = `봉인한 상자 #${order.id} → ${order.dest.id} ${order.dest.name}`;
-  } else if (carry) carried = '충전된 배터리';
+  } else if (carry?.kind === 'icepack') carried = '아이스팩';
+  else if (carry) carried = '충전된 배터리';
   text('carry', carried ? `운반 중 · ${carried}` : '');
   updateObjective(s);
   html('keys', inConsole
@@ -235,6 +255,18 @@ function updateConsole(s: Sim) {
     guide = `패드 오차 ${off.toFixed(1)} m — 경착륙을 피하려면 ${FLIGHT.hardLandingOffset} m 이내로 맞추세요.<br>WASD로 조종한 뒤 Space.`;
   } else if (gps) guide = 'F를 길게 눌러 재보정하세요. 그동안 드론은 바람에 밀립니다.';
   html('guide', guide);
+  const fragile = d.state === 'hold' && !!o?.tags.includes('fragile');
+  cls('stability', 'hidden', !fragile);
+  if (fragile) {
+    const speed = Math.hypot(d.vel.x, d.vel.z);
+    const steady = speed <= SCORE.fragileMaxSpeed;
+    cls('stability', 'steady', steady);
+    text('stab-limit-label', String(SCORE.fragileMaxSpeed));
+    text('stab-value', `${speed.toFixed(1)} m/s ${steady ? '안정' : '흔들림'}`);
+    $('stability').setAttribute('aria-valuenow', speed.toFixed(1));
+    ($('stab-fill') as HTMLElement).style.width = `${Math.min(100, (speed / STAB_SCALE) * 100)}%`;
+    ($('stab-limit') as HTMLElement).style.left = `${(SCORE.fragileMaxSpeed / STAB_SCALE) * 100}%`;
+  }
   drawMinimap(s);
 }
 

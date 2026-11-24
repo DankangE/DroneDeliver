@@ -1,13 +1,16 @@
 export type ProductId = 'ramen' | 'water' | 'lettuce' | 'eggs' | 'milk' | 'apple';
-export interface Product { id: ProductId; name: string; unit: string; color: number }
+/** Cargo handling rules; they only apply on stages with `fresh` set. */
+export type CargoTag = 'cold' | 'fragile';
+export const TAG_LABEL: Record<CargoTag, string> = { cold: '냉장', fragile: '파손주의' };
+export interface Product { id: ProductId; name: string; unit: string; color: number; tags: CargoTag[] }
 
 export const PRODUCTS: Product[] = [
-  { id: 'ramen', name: '라면', unit: '개', color: 0xe56037 },
-  { id: 'water', name: '생수', unit: '병', color: 0x73c9ea },
-  { id: 'lettuce', name: '상추', unit: '통', color: 0x76ac50 },
-  { id: 'eggs', name: '계란', unit: '판', color: 0xd3aa7f },
-  { id: 'milk', name: '우유', unit: '팩', color: 0x4b80c8 },
-  { id: 'apple', name: '사과', unit: '개', color: 0xcd4137 },
+  { id: 'ramen', name: '라면', unit: '개', color: 0xe56037, tags: [] },
+  { id: 'water', name: '생수', unit: '병', color: 0x73c9ea, tags: [] },
+  { id: 'lettuce', name: '상추', unit: '통', color: 0x76ac50, tags: ['cold'] },
+  { id: 'eggs', name: '계란', unit: '판', color: 0xd3aa7f, tags: ['fragile'] },
+  { id: 'milk', name: '우유', unit: '팩', color: 0x4b80c8, tags: ['cold'] },
+  { id: 'apple', name: '사과', unit: '개', color: 0xcd4137, tags: [] },
 ];
 
 export const productById = (id: ProductId) => PRODUCTS.find((product) => product.id === id)!;
@@ -26,6 +29,8 @@ export interface StageDef {
   orderUnits: [number, number];
   windBase: number;
   faultChance: number;
+  /** Fresh delivery: share of orders that carry at least one cold or fragile product. Unset = no cargo rules. */
+  fresh?: { share: number };
   briefing: string[];
 }
 
@@ -70,6 +75,28 @@ export const STAGES: StageDef[] = [
       '포장 확인 후 봉인한 상자를 빈 드론에 연결하세요. 콘솔에서 출발시키고 1 / 2 또는 Tab으로 드론을 전환하세요.',
       '바람이 더 세고 고장이 잦습니다. 주문 마감도 더 빠릅니다.',
       '제자리 비행 중에도 배터리는 닳습니다. 두 드론의 상태 카드를 계속 확인하세요.',
+    ],
+  },
+  {
+    id: 3,
+    name: '신선 배송 — 냉장 · 파손주의',
+    drones: 2,
+    target: 1600,
+    timeLimit: 360,
+    orderInterval: 34,
+    maxPending: 3,
+    orderDeadline: 160,
+    orderLines: [2, 3],
+    orderUnits: [3, 5],
+    windBase: 2.0,
+    faultChance: 0.2,
+    fresh: { share: 0.6 },
+    briefing: [
+      '신선식품 배송이 시작됐습니다. 우유 · 상추가 든 주문에는 냉장, 계란이 든 주문에는 파손주의 표시가 붙습니다.',
+      '냉장 주문은 포장대 옆 냉동고에서 아이스팩 1개를 꺼내 상자에 넣어야 포장 확인을 통과합니다.',
+      '봉인한 순간부터 보냉 90초가 흐릅니다. 빈 드론이 있을 때 봉인하고, 90초 안에 도착시키면 보냉 보너스를 받습니다.',
+      '파손주의 화물은 드론이 거의 멈췄을 때(수평 속도 1.2 m/s 이하) 투하하세요. 콘솔 아래 안정도 게이지가 초록일 때입니다.',
+      '드론은 2대입니다. 바람과 고장은 러시아워보다 조금 약합니다.',
     ],
   },
 ];
@@ -117,6 +144,11 @@ export const SCORE = {
   missPenalty: 20,
   crashPenalty: 60,
   packErrorPenalty: 10,
+  coldBonus: 40,
+  coldLimit: 90,
+  fragileBonus: 30,
+  fragileMaxSpeed: 1.2,
+  breakPenalty: 30,
   comboStep: 0.25,
   comboMax: 2,
   perfectRadius: 2,
@@ -142,6 +174,8 @@ export const BASE = {
   ],
   shelfLevels: [0.72, 1.42],
   packTable: { x: -6.4, z: -1.6 },
+  /** Chest freezer for ice packs, south of the packing table; w along x, d along z. */
+  freezer: { x: -6.4, z: 1.3, w: 1.0, d: 0.8 },
   batteryRack: { x: 11, z: -1 },
   playerStart: { x: 0, z: 1, yaw: Math.PI },
   walkSpeed: 5.2,

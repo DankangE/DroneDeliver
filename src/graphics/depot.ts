@@ -645,6 +645,24 @@ function launchPads(group: THREE.Group, marks: THREE.Scene, s: Surfaces, m: Fini
   trafficCone(group, -7.1, 6.77, m); trafficCone(group, 7.15, 6.76, m);
 }
 
+function iceFreezer(group: THREE.Group, m: Finishes) {
+  // Chest freezer for ice packs; the label and handle face the aisle (+x).
+  const f = BASE.freezer, top = 0.86, face = f.x + f.w / 2;
+  box(group, f.w - 0.04, 0.07, f.d - 0.04, m.dark, f.x, 0.035, f.z);
+  box(group, f.w, top - 0.13, f.d, m.ivory, f.x, 0.07 + (top - 0.13) / 2, f.z);
+  box(group, f.w + 0.02, 0.06, f.d + 0.02, m.blue, f.x, top - 0.03, f.z);
+  box(group, 0.035, 0.035, 0.46, m.dark, face + 0.03, top - 0.09, f.z);
+  for (const dz of [-0.2, 0.2]) box(group, 0.03, 0.05, 0.03, m.zinc, face + 0.012, top - 0.09, f.z + dz);
+  plate(group, 0.62, 0.26, printed(canvasTex(384, 160, g => {
+    g.fillStyle = '#e6f2f8'; g.fillRect(0, 0, 384, 160);
+    g.fillStyle = '#1e5f9a'; g.fillRect(0, 0, 384, 42);
+    g.fillStyle = '#fff'; g.font = `bold 30px ${KO_FONT}`; g.fillText('냉동고', 16, 31);
+    g.fillStyle = '#1e5f9a'; g.font = `bold 48px ${KO_FONT}`; g.fillText('아이스팩', 16, 104);
+    g.fillStyle = '#4a6170'; g.font = `24px ${KO_FONT}`; g.fillText('냉장 주문 상자에 1개', 16, 144);
+  })), face + 0.004, 0.5, f.z, Math.PI / 2);
+  box(group, 0.012, 0.07, 0.07, m.greenLed, face + 0.004, 0.24, f.z + 0.28);
+}
+
 export function buildDepot(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) {
   const m = depotFinishes();
   const structure = new THREE.Group(); structure.name = '배송 기지';
@@ -661,6 +679,9 @@ export function buildDepot(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) 
   const shelving = new THREE.Group(); shelving.name = '출고 선반';
   cargoShelves(shelving, marks, s, m);
   installSection(scene, shelving);
+  const freezer = new THREE.Group(); freezer.name = '냉동고';
+  iceFreezer(freezer, m);
+  installSection(scene, freezer);
   const charger = new THREE.Group(); charger.name = '충전';
   chargingStation(charger, scene, marks, s, m);
   installSection(scene, charger);
