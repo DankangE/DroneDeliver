@@ -4,7 +4,7 @@ import { needsAttention, objective, predictImpact, type Drone, type Sim } from '
 import { buildDepot } from './graphics/depot';
 import { buildDestinations } from './graphics/destinations';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
-import { displayContents, packingStation, productModel, stockShelves } from './graphics/packing';
+import { displayContents, icePackModel, packingStation, productModel, stockShelves } from './graphics/packing';
 import { crateModel } from './graphics/crate';
 import { canvasTex, ink, setTextureQuality, surfaces, type Surfaces } from './graphics/materials';
 import { Pipeline } from './graphics/pipeline';
@@ -27,6 +27,7 @@ export class World {
   private heldCrate = new THREE.Group();
   private heldBattery: THREE.Group;
   private heldItem = new THREE.Group();
+  private heldIcePack = icePackModel();
   private packing: ReturnType<typeof packingStation>;
   private contentsKey = '';
   private marker: THREE.Mesh;
@@ -56,7 +57,9 @@ export class World {
     this.heldBattery.traverse(part => { part.castShadow = false; });
     this.heldItem.scale.setScalar(1.32);
     this.heldItem.rotation.set(0.08, -0.35, -0.12);
-    this.held.add(this.heldCrate, this.heldBattery, this.heldItem);
+    this.heldIcePack.scale.setScalar(1.3);
+    this.heldIcePack.rotation.set(0.5, -0.35, -0.1);
+    this.held.add(this.heldCrate, this.heldBattery, this.heldItem, this.heldIcePack);
     this.held.position.set(0.32, -0.42, -0.85);
     this.camera.add(this.held);
     this.scene.add(this.camera);
@@ -125,6 +128,7 @@ export class World {
     this.updateCrates(s, dt);
 
     this.packing.carton.visible = !!s.box;
+    this.packing.icePack.visible = !!s.box?.icePack;
     const contentsKey = s.box?.contents.join('/') ?? '';
     if (this.contentsKey !== contentsKey) {
       displayContents(this.packing.contents, s.box?.contents ?? []);
@@ -142,6 +146,7 @@ export class World {
     }
     this.held.visible = s.player.mode === 'walk' && carry != null;
     this.heldBattery.visible = carry?.kind === 'battery';
+    this.heldIcePack.visible = carry?.kind === 'icepack';
     this.heldCrate.visible = carry?.kind === 'crate';
     if (carry?.kind === 'crate') {
       const o = s.orders.find((or) => or.id === carry.orderId);

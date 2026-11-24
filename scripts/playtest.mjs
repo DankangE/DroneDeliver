@@ -1,11 +1,13 @@
 // Automated playtest: builds the game and serves it with Vite preview in-process, drives the game in
-// Chrome with real keyboard input plus the ?debug=1 hook, plays Stage 1 and
-// Stage 2 to the end, triggers and resolves battery / GPS / rotor events, and
+// Chrome with real keyboard input plus the ?debug=1 hook, plays Stages 1-3 to the end, triggers and
+// resolves battery / GPS / rotor events, packs ice packs and steadies fragile drops on Stage 3, and
 // saves screenshots to docs/screenshots/.
 //
 //   npm run playtest                 # uses the installed Google Chrome
 //   CHROME_PATH=/path/to/chrome npm run playtest
 //   PLAYTEST_SPEED=3 npm run playtest   # game time-scale after the first trip
+//   PLAYTEST_ONLY=3 npm run playtest    # one stage
+//   PLAYTEST_FULL=1 npm run playtest    # ignore the target and play the whole shift (measures the bot score)
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -19,6 +21,8 @@ const shots = join(root, 'docs/screenshots');
 mkdirSync(shots, { recursive: true });
 const speed = Number(process.env.PLAYTEST_SPEED ?? 3);
 const only = process.env.PLAYTEST_ONLY;
+const full = process.env.PLAYTEST_FULL === '1';
+const FRAGILE_MAX = 1.2;
 
 const configFile = join(root, 'vite.config.ts');
 await build({ root, configFile, logLevel: 'warn' });
@@ -43,7 +47,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 const wait = (ms) => page.waitForTimeout(ms);
 const snap = () => page.evaluate(() => window.__game.snapshot());
 const g = (fn, arg) => page.evaluate(fn, arg);
-const results = { trips: [], events: [], stages: [], packTimes: [], packErrors: [] };
+const results = { trips: [], events: [], stages: [], packTimes: [], packErrors: [], fragileDrops: [] };
 
 async function shot(name) {
   const file = join(shots, `${name}.png`);
@@ -97,6 +101,7 @@ const bayOf = id => `bay:${productIds.indexOf(id)}`;
 async function freeHands(s) {
   if (!s.carrying) return true;
   if (s.carrying.kind === 'item') await use(bayOf(s.carrying.product));
+  else if (s.carrying.kind === 'icepack') await use('freezer');
   else if (s.carrying.kind === 'battery') await use('rack');
   else if (!s.box) await use('table');
   else {
@@ -119,7 +124,8 @@ async function select(idx) {
   if (s.drones.length > 1) await press(String(idx + 1));
 }
 
-async function steerAndCommit(droneIdx, wantState, tolerance) {
+// `steady`: also wait until the drone has slowed below the fragile drop limit (with a margin).
+async function steerAndCommit(droneIdx, wantState, tolerance, steady = false) {
   const t0 = Date.now();
   while (Date.now() - t0 < 20000) {
     const s = await snap();
@@ -132,7 +138,9 @@ async function steerAndCommit(droneIdx, wantState, tolerance) {
       await releaseAll();
       await wait(120);
       const aim2 = await g(() => window.__game.aim());
-      if (Math.hypot(aim2.x, aim2.z) < tolerance * 1.4) { await press('Space'); return err; }
+      const speed = (await snap()).drones[droneIdx].hspeed;
+      if (steady && speed > FRAGILE_MAX - 0.25) continue;
+      if (Math.hypot(aim2.x, aim2.z) < tolerance * 1.4) { await press('Space'); return { err, speed }; }
       continue;
     }
     await setKey('d', aim.x > 0.35);
@@ -160,14 +168,24 @@ async function handleAttention(s) {
     return true;
   }
   if (d.state === 'hold') {
+    const order = s.orders.find(o => o.id === d.orderId);
+    const fragile = !!order?.tags.includes('fragile');
     if (!results.holdShot) { results.holdShot = true; await wait(400); await shot('05-console-drop-view'); }
-    const err = await steerAndCommit(d.idx, 'hold', 0.9);
-    if (err != null) console.log(`  drone ${d.idx + 1} dropped (aim error ${err.toFixed(2)} m)`);
+    if (fragile && !results.gaugeShot) {
+      results.gaugeShot = true;
+      await setKey('d', true); await wait(250); await setKey('d', false);
+      await shot('17-stage3-stability-gauge');
+    }
+    const drop = await steerAndCommit(d.idx, 'hold', 0.9, fragile);
+    if (drop) {
+      console.log(`  drone ${d.idx + 1} dropped (aim error ${drop.err.toFixed(2)} m, speed ${drop.speed.toFixed(2)} m/s${fragile ? ', fragile' : ''})`);
+      if (fragile) results.fragileDrops.push(drop.speed);
+    }
     return true;
   }
-  const err = await steerAndCommit(d.idx, 'approach', 0.8);
-  if (err != null) {
-    console.log(`  drone ${d.idx + 1} landing (pad offset ${err.toFixed(2)} m)`);
+  const landing = await steerAndCommit(d.idx, 'approach', 0.8);
+  if (landing) {
+    console.log(`  drone ${d.idx + 1} landing (pad offset ${landing.err.toFixed(2)} m)`);
     if (s.stage === 1 && !s.stats.trips.length) {
       await page.waitForFunction(() => window.__game.sim.stats.trips.length > 0);
       await wait(600);
@@ -205,6 +223,18 @@ async function loadDrone(s) {
     const have = s.box.contents.filter(id => id === line.product).length;
     return Array(Math.max(0, line.qty - have)).fill(line.product);
   });
+  const needsIce = order.tags.includes('cold') && !s.box.icePack;
+  if (!s.box.checked && !missing.length && needsIce) {
+    await use('freezer');
+    const picked = await snap();
+    if (picked.phase !== 'playing') return true;
+    assert.equal(picked.carrying?.kind, 'icepack', 'Freezer did not hand out an ice pack');
+    if (!results.iceShot) { results.iceShot = true; await shot('16-stage3-ice-pack'); }
+    await use('table');
+    const after = await snap();
+    if (after.phase === 'playing') assert.equal(after.box?.icePack, true, 'Ice pack did not go into the box');
+    return true;
+  }
   if (s.box.checked || !missing.length) {
     await use('table');
     const after = await snap();
@@ -301,8 +331,9 @@ async function playStage(stageId, { forcedEvents }) {
   console.log(`\n=== Stage ${stageId} ===`);
   await g((id) => { window.__game.showBriefing(id); }, stageId);
   await wait(200);
-  await shot(stageId === 1 ? '01b-briefing-stage1' : '09-briefing-stage2');
+  await shot({ 1: '01b-briefing-stage1', 2: '09-briefing-stage2', 3: '16a-briefing-stage3' }[stageId]);
   await page.click('#b-go');
+  if (full) await g(() => { const s = window.__game.sim; s.stage = { ...s.stage, target: Infinity }; });
   speedNow = 1;
   await g(() => window.__game.setTimeScale(1));
   if (!results.baseShot) {
@@ -322,8 +353,10 @@ async function playStage(stageId, { forcedEvents }) {
   const start = Date.now();
   let triggered = false;
   let twoAirShot = false;
+  const scoreline = [];
   while (Date.now() - start < 12 * 60 * 1000) {
     const s = await snap();
+    if (s.score !== (scoreline.at(-1)?.score ?? 0)) scoreline.push({ t: Math.round(s.time), score: s.score });
     if (s.phase !== 'playing') break;
     if (s.stats.trips.length >= 1 && speedNow === 1) { speedNow = speed; await g((n) => window.__game.setTimeScale(n), speed); }
     if (stageId === 1 && forcedEvents && !triggered && s.stats.trips.length >= 1 && s.drones[0].state === 'pad') {
@@ -363,9 +396,10 @@ async function playStage(stageId, { forcedEvents }) {
   }
   console.log(`  phase=${end.phase} score=${end.score}/${end.targetScore} gameTime=${end.time}s trips=${trips.map((t) => t.toFixed(1)).join(', ')}`);
   results.trips.push(...trips.map((t) => ({ stage: stageId, t })));
-  results.stages.push({ stage: stageId, phase: end.phase, score: end.score, time: end.time, stats: end.stats });
+  results.stages.push({ stage: stageId, phase: end.phase, score: end.score, time: end.time, stats: end.stats, scoreline });
+  console.log(`  score after each delivery: ${scoreline.map((p) => `${p.score}@${p.t}s`).join(', ')}`);
   await wait(300);
-  await shot(stageId === 1 ? '11-stage1-clear' : '12-stage2-clear');
+  if (!full) await shot({ 1: '11-stage1-clear', 2: '12-stage2-clear', 3: '18-stage3-clear' }[stageId]);
 }
 
 let exitCode = 0;
@@ -375,9 +409,22 @@ try {
   productIds = await g(() => window.__game.products.map(p => p.id));
   await wait(800);
   await shot('01-title');
-  if (only !== '2') await playStage(1, { forcedEvents: true });
-  if (only !== '1') await playStage(2, { forcedEvents: true });
+  for (const stageId of only ? [Number(only)] : [1, 2, 3]) await playStage(stageId, { forcedEvents: true });
+  if (!full) await finalChecks();
+} catch (e) {
+  console.error('\nPLAYTEST ABORTED:', e);
+  exitCode = 1;
+} finally {
+  await releaseAll().catch(() => {});
+  console.log('\nRESULTS', JSON.stringify({ ...results, errors }, null, 1));
+  if (full) exitCode = errors.length ? 1 : exitCode;
+  else if (errors.length || results.stages.some((st) => st.phase !== 'clear') || (results.failCheck && results.failCheck !== 'fail')) exitCode = 1;
+  await browser.close();
+  await server.close();
+  process.exit(exitCode);
+}
 
+async function finalChecks() {
   // Lose condition: start Stage 1 and run the clock out.
   await g(() => { window.__game.showBriefing(1); });
   await page.click('#b-go');
@@ -400,14 +447,4 @@ try {
   await press('Escape');
   await page.waitForSelector('#b-resume');
   await shot('15-quality-menu');
-} catch (e) {
-  console.error('\nPLAYTEST ABORTED:', e);
-  exitCode = 1;
-} finally {
-  await releaseAll().catch(() => {});
-  console.log('\nRESULTS', JSON.stringify({ ...results, errors }, null, 1));
-  if (errors.length || results.stages.some((st) => st.phase !== 'clear') || (results.failCheck && results.failCheck !== 'fail')) exitCode = 1;
-  await browser.close();
-  await server.close();
-  process.exit(exitCode);
 }

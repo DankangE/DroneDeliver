@@ -22,6 +22,10 @@
       </div>
       <div id="exit-hint" class="hidden"><kbd>Q</kbd> 나가서 다음 주문 준비 · 비행은 자동입니다</div>
       <div id="guide"></div>
+      <div id="stability" class="hidden" role="meter" aria-label="수평 속도" aria-valuemin="0" aria-valuemax="3">
+        <div class="stab-head"><span>안정도 · 파손주의 투하 기준 ≤ <span id="stab-limit-label"></span> m/s</span><span id="stab-value"></span></div>
+        <div class="stab-track"><i id="stab-fill"></i><b id="stab-limit"></b></div>
+      </div>
       <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
     </div>
   </div>

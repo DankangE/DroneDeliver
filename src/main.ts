@@ -81,10 +81,11 @@ function showTitle() {
     <h1>드론 배송 관제사</h1>
     <p>라면 두 개와 생수 한 병을 주문한 이웃이 기다립니다. 선반에서 주문 상품을 꺼내 포장대에 담고, 수량을 확인해 상자를 봉인하세요. 드론에 연결한 뒤 콘솔에서 출발과 투하, 귀환 착륙을 맡으세요.</p>
     ${CONTROLS}
-    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button></div>`);
+    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button><button id="b-s3">스테이지 3 바로 가기</button></div>`);
   mountQualityMenu();
   bind('b-start', () => showBriefing(1));
   bind('b-s2', () => showBriefing(2));
+  bind('b-s3', () => showBriefing(3));
 }
 
 function showBriefing(stageId: number) {
@@ -99,6 +100,7 @@ function showBriefing(stageId: number) {
     <ul>${st.briefing.map((b) => `<li>${b}</li>`).join('')}</ul>
     <div class="goal"><div><b>${st.target}</b><span>목표 점수</span></div><div><b>${Math.floor(st.timeLimit / 60)}:00</b><span>근무 시간</span></div><div><b>${st.drones}</b><span>드론 대수</span></div></div>
     <p>배송 1건 100점, 완벽 투하 +60, 우수 +25, 정시 +30. 연속 배송은 최대 x2까지 콤보가 쌓입니다. 포장 확인 때 잘못 담거나 부족한 수량 하나당 ${SCORE.packErrorPenalty}점이 깎입니다. 투하 실패와 기한 초과도 감점입니다.</p>
+    ${st.fresh ? `<p>냉장: 아이스팩이 빠지면 포장 오류 -${SCORE.packErrorPenalty}, 봉인 후 ${SCORE.coldLimit}초 안에 도착하면 +${SCORE.coldBonus}, 넘기면 온도 이탈(기본 100점만, 콤보 끊김). 파손주의: 수평 속도 ${SCORE.fragileMaxSpeed} m/s 이하로 투하하면 +${SCORE.fragileBonus}, 넘기면 파손(최대 양호, -${SCORE.breakPenalty}, 콤보 끊김).</p>` : ''}
     <div class="btns"><button class="primary" id="b-go">근무 시작</button><button id="b-title">타이틀</button></div>`);
   bind('b-go', begin);
   bind('b-title', showTitle);
@@ -131,6 +133,8 @@ function showResult() {
     <span>완벽 / 우수 투하</span><span>${s.stats.perfect} / ${s.stats.good}</span>
     <span>빗나감 · 기한 초과 · 추락</span><span>${s.stats.missed} · ${s.stats.expired} · ${s.stats.crashes}</span>
     <span>고장 수리 · 배터리 교체</span><span>${s.stats.faultsFixed} · ${s.stats.swaps}</span>
+    ${s.stage.fresh ? `<span>보냉 성공 · 온도 이탈</span><span>${s.stats.coldKept} · ${s.stats.coldWarm}</span>
+    <span>파손주의 무사 · 파손</span><span>${s.stats.fragileSafe} · ${s.stats.broken}</span>` : ''}
     <span>최고 콤보</span><span>${s.stats.bestStreak}</span>
     <span>평균 왕복 시간</span><span>${avgTrip}</span>
     ${won ? `<span>등급</span><span>${rank(s)}</span>` : ''}
@@ -266,8 +270,9 @@ requestAnimationFrame(frame);
 // ------------------------------------------------------------ debug hook (?debug=1)
 
 if (debug) {
-  const spots: Record<string, Target> = { table: { kind: 'table' }, rack: { kind: 'rack' }, console: { kind: 'console' } };
+  const spots: Record<string, Target> = { table: { kind: 'table' }, freezer: { kind: 'freezer' }, rack: { kind: 'rack' }, console: { kind: 'console' } };
   const at = (t: Target) => {
+    if (t.kind === 'freezer') return { x: BASE.freezer.x + 1.6, z: BASE.freezer.z, yaw: Math.PI / 2 };
     if (t.kind === 'rack') return { x: BASE.batteryRack.x - 1.6, z: BASE.batteryRack.z, yaw: -Math.PI / 2 };
     if (t.kind === 'console') return { x: BASE.console.x, z: BASE.console.z + 1.6, yaw: 0 };
     if (t.kind === 'table') return { x: BASE.packTable.x + 1.6, z: BASE.packTable.z, yaw: Math.PI / 2 };
@@ -299,7 +304,7 @@ if (debug) {
       const [kind, idx] = name.split(':');
       const t: Target = kind === 'bay' ? { kind: 'bay', bay: Number(idx) } : kind === 'pad' ? { kind: 'pad', idx: Number(idx) } : spots[kind];
       const p = at(t);
-      sim.player.x = p.x; sim.player.z = p.z; sim.player.yaw = p.yaw; sim.player.pitch = t.kind === 'bay' ? -0.06 : t.kind === 'table' ? -0.5 : -0.35;
+      sim.player.x = p.x; sim.player.z = p.z; sim.player.yaw = p.yaw; sim.player.pitch = t.kind === 'bay' ? -0.06 : t.kind === 'table' || t.kind === 'freezer' ? -0.5 : -0.35;
     },
     trigger(kind: 'battery' | 'gps' | 'motor' | 'order', droneIdx = 0) {
       const d = sim.drones[droneIdx];
@@ -321,8 +326,8 @@ if (debug) {
     snapshot() {
       return {
         phase: sim.phase, stage: sim.stage.id, time: +sim.time.toFixed(2), score: sim.score, mode: sim.player.mode, carrying: sim.player.carrying, box: sim.box, target: sim.target, targetScore: sim.stage.target,
-        drones: sim.drones.map((d) => ({ idx: d.idx, state: d.state, fault: d.fault, battery: +d.battery.toFixed(1), orderId: d.orderId, pos: { x: +d.pos.x.toFixed(1), y: +d.pos.y.toFixed(1), z: +d.pos.z.toFixed(1) } })),
-        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, status: o.status, items: o.items, deadline: o.deadline })),
+        drones: sim.drones.map((d) => ({ idx: d.idx, state: d.state, fault: d.fault, battery: +d.battery.toFixed(1), orderId: d.orderId, pos: { x: +d.pos.x.toFixed(1), y: +d.pos.y.toFixed(1), z: +d.pos.z.toFixed(1) }, hspeed: +Math.hypot(d.vel.x, d.vel.z).toFixed(2) })),
+        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, status: o.status, items: o.items, tags: o.tags, sealedAt: o.sealedAt, deadline: o.deadline })),
         stats: sim.stats,
       };
     },

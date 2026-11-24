@@ -1,4 +1,4 @@
-import { BASE, DESTINATIONS, FLIGHT, PRODUCTS, SCORE, STAGES, bayLetter, productById, type ProductId, type Destination, type StageDef } from './config';
+import { BASE, DESTINATIONS, FLIGHT, PRODUCTS, SCORE, STAGES, bayLetter, productById, TAG_LABEL, type CargoTag, type ProductId, type Destination, type StageDef } from './config';
 
 export type DroneState = 'pad' | 'takeoff' | 'outbound' | 'hold' | 'returning' | 'approach' | 'landing' | 'down';
 export type Fault = 'gps' | 'motor' | null;
@@ -9,7 +9,7 @@ export type Grade = 'PERFECT' | 'GOOD' | 'OK' | 'MISS';
 export interface V3 { x: number; y: number; z: number }
 
 export interface OrderLine { product: ProductId; qty: number }
-export interface Box { orderId: number; contents: ProductId[]; checked: boolean; missing: OrderLine[] }
+export interface Box { orderId: number; contents: ProductId[]; icePack: boolean; checked: boolean; missing: OrderLine[] }
 
 export interface Order {
   id: number;
@@ -18,7 +18,11 @@ export interface Order {
   deadline: number;
   status: OrderStatus;
   items: OrderLine[];
+  /** Handling rules for this order; empty outside fresh stages. */
+  tags: CargoTag[];
   launchedAt: number | null;
+  /** Seal time; the cold limit counts from here. */
+  sealedAt: number | null;
 }
 
 export interface Drone {
@@ -40,13 +44,15 @@ export interface Drone {
   flights: number;
 }
 
-export interface Package { orderId: number; pos: V3; vel: V3; drone: number }
+/** `dropSpeed`: the drone's horizontal speed when it let go; judges fragile cargo. */
+export interface Package { orderId: number; pos: V3; vel: V3; drone: number; dropSpeed: number }
 
-export type Carry = { kind: 'item'; product: ProductId } | { kind: 'crate'; orderId: number } | { kind: 'battery' } | null;
+export type Carry = { kind: 'item'; product: ProductId } | { kind: 'crate'; orderId: number } | { kind: 'battery' } | { kind: 'icepack' } | null;
 
 export type Target =
   | { kind: 'bay'; bay: number }
   | { kind: 'table' }
+  | { kind: 'freezer' }
   | { kind: 'rack' }
   | { kind: 'pad'; idx: number }
   | { kind: 'console' };
@@ -77,7 +83,7 @@ export interface Input {
   fixHeld: boolean;
 }
 
-export interface Stats { delivered: number; perfect: number; good: number; missed: number; expired: number; crashes: number; faultsFixed: number; swaps: number; bestStreak: number; trips: number[] }
+export interface Stats { delivered: number; perfect: number; good: number; missed: number; expired: number; crashes: number; faultsFixed: number; swaps: number; bestStreak: number; trips: number[]; coldKept: number; coldWarm: number; fragileSafe: number; broken: number }
 
 export interface Sim {
   stage: StageDef;
@@ -117,7 +123,7 @@ export function createSim(stageId: number): Sim {
   }
   return {
     stage, phase: 'briefing', time: 0, timeLeft: stage.timeLimit, score: 0, streak: 0,
-    stats: { delivered: 0, perfect: 0, good: 0, missed: 0, expired: 0, crashes: 0, faultsFixed: 0, swaps: 0, bestStreak: 0, trips: [] },
+    stats: { delivered: 0, perfect: 0, good: 0, missed: 0, expired: 0, crashes: 0, faultsFixed: 0, swaps: 0, bestStreak: 0, trips: [], coldKept: 0, coldWarm: 0, fragileSafe: 0, broken: 0 },
     orders: [], box: null, drones, packages: [], wind: { x: 0, z: 0 }, windSeed: Math.random() * 100, selected: 0,
     nextOrderAt: 1.5, nextOrderId: 1,
     player: { x: BASE.playerStart.x, z: BASE.playerStart.z, yaw: BASE.playerStart.yaw, pitch: -0.05, mode: 'walk', carrying: null, holdProgress: 0 },
@@ -141,10 +147,14 @@ const between = (min: number, max: number) => min + Math.floor(Math.random() * (
 function orderItems(stage: StageDef): OrderLine[] {
   const lines = between(...stage.orderLines);
   const units = between(Math.max(lines, stage.orderUnits[0]), Math.min(lines * 3, stage.orderUnits[1]));
-  const choices = [...PRODUCTS];
+  const special = stage.fresh ? Math.random() < stage.fresh.share : null;
+  // Plain fresh-stage orders draw only untagged products; special ones lead with a tagged one.
+  const choices = PRODUCTS.filter(product => special !== false || !product.tags.length);
   const items: OrderLine[] = [];
   while (items.length < lines) {
-    const [product] = choices.splice(between(0, choices.length - 1), 1);
+    const pool = special && !items.length ? choices.filter(product => product.tags.length) : choices;
+    const product = pool[between(0, pool.length - 1)];
+    choices.splice(choices.indexOf(product), 1);
     items.push({ product: product.id, qty: 1 });
   }
   for (let i = lines; i < units; i++) {
@@ -159,6 +169,15 @@ export function orderText(o: Order): string {
 }
 
 export const packedQty = (box: Box, id: ProductId) => box.contents.filter(item => item === id).length;
+export const hasTag = (o: Order, tag: CargoTag) => o.tags.includes(tag);
+/** Seconds of cold left once sealed; null for orders without the cold rule or not sealed yet. */
+export const coldLeft = (s: Sim, o: Order) => (hasTag(o, 'cold') && o.sealedAt != null ? SCORE.coldLimit - (s.time - o.sealedAt) : null);
+
+function orderTags(stage: StageDef, items: OrderLine[]): CargoTag[] {
+  if (!stage.fresh) return [];
+  const tags = new Set(items.flatMap(line => productById(line.product).tags));
+  return (['cold', 'fragile'] as const).filter(tag => tags.has(tag));
+}
 const pending = (o: Order) => o.status === 'waiting' || o.status === 'packing' || o.status === 'carried' || o.status === 'loaded';
 const nextWaiting = (s: Sim) => s.orders.reduce<Order | undefined>((next, o) =>
   o.status === 'waiting' && (!next || o.deadline < next.deadline) ? o : next, undefined);
@@ -167,9 +186,11 @@ function spawnOrder(s: Sim) {
   const choices = DESTINATIONS.filter((d) => d.id !== s.lastDest);
   const dest = choices[Math.floor(Math.random() * choices.length)];
   s.lastDest = dest.id;
-  const order: Order = { id: s.nextOrderId++, dest, spawnedAt: s.time, deadline: s.time + s.stage.orderDeadline, status: 'waiting', items: orderItems(s.stage), launchedAt: null };
+  const items = orderItems(s.stage);
+  const order: Order = { id: s.nextOrderId++, dest, spawnedAt: s.time, deadline: s.time + s.stage.orderDeadline, status: 'waiting', items, tags: orderTags(s.stage, items), launchedAt: null, sealedAt: null };
   s.orders.push(order);
-  note(s, `새 주문 #${order.id}: ${dest.id} ${dest.name} — ${orderText(order)}`, 'info');
+  const tagText = order.tags.map(tag => ` [${TAG_LABEL[tag]}]`).join('');
+  note(s, `새 주문 #${order.id}: ${dest.id} ${dest.name}${tagText} — ${orderText(order)}`, 'info');
   sfx(s, 'order');
 }
 
@@ -207,6 +228,7 @@ export function interactables(s: Sim): Spot[] {
     if (!carry || (carry.kind === 'item' && carry.product === PRODUCTS[bay].id)) spots.push({ target: { kind: 'bay', bay }, ...p });
   });
   spots.push({ target: { kind: 'table' }, ...BASE.packTable });
+  spots.push({ target: { kind: 'freezer' }, x: BASE.freezer.x, z: BASE.freezer.z });
   spots.push({ target: { kind: 'rack' }, x: BASE.batteryRack.x, z: BASE.batteryRack.z });
   BASE.pads.forEach((p, idx) => spots.push({ target: { kind: 'pad', idx }, x: p.x, z: p.z }));
   spots.push({ target: { kind: 'console' }, x: BASE.console.x, z: BASE.console.z });
@@ -273,16 +295,23 @@ export function promptFor(s: Sim, t: Target | null): Prompt | null {
     case 'table': {
       if (carry?.kind === 'battery') return disabled('배터리를 먼저 내려놓으세요');
       if (carry?.kind === 'crate') return s.box ? disabled('포장대를 사용 중입니다') : action('[E] 상자를 포장대에 내려놓기');
-      if (!s.box) {
-        const o = nextWaiting(s);
-        if (!o) return disabled('포장할 주문을 기다리는 중');
-        const add = carry ? ` · ${productById(carry.product).name} 넣기` : '';
-        return action(`[E] 주문 #${o.id} 포장 시작 — ${orderText(o)}${add}`);
+      const order = s.box ? orderById(s, s.box.orderId)! : nextWaiting(s);
+      if (!order) return disabled('포장할 주문을 기다리는 중');
+      if (carry?.kind === 'icepack') {
+        if (!hasTag(order, 'cold')) return disabled(`주문 #${order.id}은 냉장 주문이 아닙니다 — 냉동고에 돌려놓으세요`);
+        if (s.box?.icePack) return disabled('아이스팩이 이미 들어 있습니다');
       }
-      if (carry) return action(`[E] 상자에 ${productById(carry.product).name} 넣기`);
+      const what = carry?.kind === 'icepack' ? '아이스팩' : carry ? productById(carry.product).name : '';
+      if (!s.box) return action(`[E] 주문 #${order.id} 포장 시작 — ${orderText(order)}${what ? ` · ${what} 넣기` : ''}`);
+      if (carry) return action(`[E] 상자에 ${what} 넣기`);
       if (s.box.checked) return action('[E] 상자 봉인');
       return s.box.contents.length ? action('[E] 포장 확인') : disabled('선반에서 물건을 가져와 담으세요');
     }
+    case 'freezer':
+      if (!s.stage.fresh) return disabled('이번 근무에는 냉장 주문이 없습니다');
+      if (carry?.kind === 'icepack') return action('[E] 아이스팩 냉동고에 돌려놓기');
+      if (carry) return disabled('손이 꽉 찼습니다');
+      return action('[E] 아이스팩 꺼내기');
     case 'rack':
       if (carry?.kind === 'battery') return { text: '[E] 배터리 거치대에 반납', hold: false, enabled: true };
       if (carry) return { text: '손이 꽉 찼습니다', hold: false, enabled: false };
@@ -296,7 +325,7 @@ export function promptFor(s: Sim, t: Target | null): Prompt | null {
       if (d.state !== 'pad') return { text: `${droneName(d.idx)}: ${stateLabel(d)}`, hold: false, enabled: false };
       if (carry?.kind === 'battery') return { text: `[E] 배터리 교체 (${Math.round(d.battery)}%)`, hold: false, enabled: true };
       if (d.fault === 'motor') return { text: `[E 길게] ${droneName(d.idx)} 로터 수리`, hold: true, enabled: true };
-      if (carry?.kind === 'item') return disabled('물건을 포장대 상자에 담으세요');
+      if (carry?.kind === 'item' || carry?.kind === 'icepack') return disabled('물건을 포장대 상자에 담으세요');
       if (carry?.kind === 'crate') {
         if (d.orderId != null) return { text: `${droneName(d.idx)}에 이미 화물이 있습니다`, hold: false, enabled: false };
         const o = orderById(s, carry.orderId)!;
@@ -344,6 +373,10 @@ function checkBox(s: Sim, box: Box, order: Order) {
       box.contents = box.contents.filter(id => id !== product.id || keep-- > 0);
     }
   }
+  if (hasTag(order, 'cold') && !box.icePack) {
+    errors.push('아이스팩 부족');
+    errorUnits++;
+  }
   box.checked = errorUnits === 0;
   if (box.checked) {
     note(s, '포장 확인 완료 — 봉인하세요', 'good');
@@ -362,7 +395,7 @@ function useTable(s: Sim) {
   if (carry?.kind === 'crate') {
     const order = orderById(s, carry.orderId)!;
     const contents = order.items.flatMap(line => Array<ProductId>(line.qty).fill(line.product));
-    s.box = { orderId: order.id, contents, checked: true, missing: [] };
+    s.box = { orderId: order.id, contents, icePack: hasTag(order, 'cold'), checked: true, missing: [] };
     order.status = 'packing';
     s.player.carrying = null;
     sfx(s, 'pickup');
@@ -372,11 +405,12 @@ function useTable(s: Sim) {
   const order = s.box ? orderById(s, s.box.orderId)! : nextWaiting(s)!;
   if (!s.box) {
     order.status = 'packing';
-    s.box = { orderId: order.id, contents: [], checked: false, missing: [] };
+    s.box = { orderId: order.id, contents: [], icePack: false, checked: false, missing: [] };
     emit(s, { type: 'log', kind: 'packing', value: order.id });
   }
-  if (carry?.kind === 'item') {
-    s.box.contents.push(carry.product);
+  if (carry?.kind === 'item' || carry?.kind === 'icepack') {
+    if (carry.kind === 'item') s.box.contents.push(carry.product);
+    else s.box.icePack = true;
     s.box.checked = false;
     s.player.carrying = null;
     sfx(s, 'pickup');
@@ -385,6 +419,10 @@ function useTable(s: Sim) {
     order.status = 'carried';
     s.box = null;
     sfx(s, 'attach');
+    if (hasTag(order, 'cold') && order.sealedAt == null) {
+      order.sealedAt = s.time;
+      note(s, `주문 #${order.id} 봉인 — 보냉 ${SCORE.coldLimit}초 시작`, 'warn');
+    }
     emit(s, { type: 'log', kind: 'seal', value: order.id });
   } else if (s.box.contents.length) {
     checkBox(s, s.box, order);
@@ -407,6 +445,10 @@ export function interact(s: Sim) {
       return;
     case 'table':
       useTable(s);
+      return;
+    case 'freezer':
+      p.carrying = p.carrying?.kind === 'icepack' ? null : { kind: 'icepack' };
+      sfx(s, 'pickup');
       return;
     case 'rack':
       p.carrying = p.carrying?.kind === 'battery' ? null : { kind: 'battery' };
@@ -505,11 +547,12 @@ function launch(s: Sim, d: Drone) {
 }
 
 function drop(s: Sim, d: Drone) {
-  s.packages.push({ orderId: d.orderId!, pos: { ...d.pos, y: d.pos.y - 0.6 }, vel: { x: d.vel.x, y: 0, z: d.vel.z }, drone: d.idx });
+  const dropSpeed = Math.hypot(d.vel.x, d.vel.z);
+  s.packages.push({ orderId: d.orderId!, pos: { ...d.pos, y: d.pos.y - 0.6 }, vel: { x: d.vel.x, y: 0, z: d.vel.z }, drone: d.idx, dropSpeed });
   d.orderId = null;
   d.state = 'returning';
   sfx(s, 'drop');
-  emit(s, { type: 'log', kind: 'drop', drone: d.idx });
+  emit(s, { type: 'log', kind: 'drop', drone: d.idx, value: dropSpeed });
 }
 
 function beginLanding(s: Sim, d: Drone) {
@@ -721,7 +764,7 @@ export function gradeFor(dist: number): Grade {
 function landPackage(s: Sim, p: Package) {
   const o = orderById(s, p.orderId)!;
   const dist = Math.hypot(p.pos.x - o.dest.x, p.pos.z - o.dest.z);
-  const grade = gradeFor(dist);
+  let grade = gradeFor(dist);
   emit(s, { type: 'log', kind: 'impact', drone: p.drone, value: dist });
   if (grade === 'MISS') {
     o.status = 'missed';
@@ -733,24 +776,40 @@ function landPackage(s: Sim, p: Package) {
     sfx(s, 'miss');
     return;
   }
-  const precision = grade === 'PERFECT' ? SCORE.perfect : grade === 'GOOD' ? SCORE.good : 0;
+  const cold = coldLeft(s, o);
+  const warm = cold != null && cold < 0;
+  const fragile = hasTag(o, 'fragile');
+  const broken = fragile && p.dropSpeed > SCORE.fragileMaxSpeed;
+  // Broken cargo caps at OK; warm cargo earns the base points only. Either breaks the combo.
+  if (broken && grade !== 'OK') grade = 'OK';
+  const precision = warm || grade === 'OK' ? 0 : grade === 'PERFECT' ? SCORE.perfect : SCORE.good;
   const elapsed = s.time - o.spawnedAt;
-  const onTime = elapsed < s.stage.orderDeadline * 0.75 ? SCORE.onTime : 0;
-  const mult = comboMult(s.streak);
-  const pts = Math.round((SCORE.base + precision + onTime) * mult);
+  const onTime = !warm && elapsed < s.stage.orderDeadline * 0.75 ? SCORE.onTime : 0;
+  const coldBonus = cold != null && !warm ? SCORE.coldBonus : 0;
+  const fragileBonus = fragile && !broken && !warm ? SCORE.fragileBonus : 0;
+  const mult = broken || warm ? 1 : comboMult(s.streak);
+  const pts = Math.round((SCORE.base + precision + onTime + coldBonus + fragileBonus) * mult) - (broken ? SCORE.breakPenalty : 0);
   s.score += pts;
-  s.streak++;
+  s.streak = broken || warm ? 0 : s.streak + 1;
   s.stats.bestStreak = Math.max(s.stats.bestStreak, s.streak);
   s.stats.delivered++;
   if (grade === 'PERFECT') s.stats.perfect++;
   if (grade === 'GOOD') s.stats.good++;
+  if (cold != null) s.stats[warm ? 'coldWarm' : 'coldKept']++;
+  if (fragile) s.stats[broken ? 'broken' : 'fragileSafe']++;
   o.status = 'delivered';
   const parts = [`${GRADE_LABEL[grade]} +${pts}`];
+  if (broken) parts.unshift('파손');
+  if (warm) parts.unshift('온도 이탈');
   if (onTime) parts.push('정시');
+  if (coldBonus) parts.push('보냉');
+  if (fragileBonus) parts.push('무사 도착');
   if (mult > 1) parts.push(`x${mult.toFixed(2)}`);
   emit(s, { type: 'popup', text: parts.join('  '), grade });
-  note(s, `${o.dest.name} 배송 완료: +${pts}`, 'good');
-  sfx(s, grade === 'PERFECT' ? 'perfect' : 'good');
+  if (broken) note(s, `${o.dest.name} 파손주의 화물 파손 — 투하 속도 ${p.dropSpeed.toFixed(1)} m/s (기준 ${SCORE.fragileMaxSpeed} m/s 이하, -${SCORE.breakPenalty})`, 'bad');
+  if (warm) note(s, `${o.dest.name} 냉장 화물 온도 이탈 — 봉인 후 ${SCORE.coldLimit}초 초과`, 'bad');
+  note(s, `${o.dest.name} 배송 완료: +${pts}`, broken || warm ? 'warn' : 'good');
+  sfx(s, broken || warm ? 'miss' : grade === 'PERFECT' ? 'perfect' : 'good');
   emit(s, { type: 'log', kind: 'delivered', drone: p.drone, value: pts });
 }
 
@@ -778,6 +837,7 @@ export function colliders(s: Sim): Collider[] {
     { minX: 6.5, maxX: h.maxX, minZ: h.maxZ - t, maxZ: h.maxZ + t },
     { minX: -12, maxX: -10.2, minZ: -6.45, maxZ: 3.25 },
     { minX: BASE.packTable.x - 0.62, maxX: BASE.packTable.x + 0.62, minZ: BASE.packTable.z - 1.25, maxZ: BASE.packTable.z + 1.25 },
+    { minX: BASE.freezer.x - BASE.freezer.w / 2, maxX: BASE.freezer.x + BASE.freezer.w / 2, minZ: BASE.freezer.z - BASE.freezer.d / 2, maxZ: BASE.freezer.z + BASE.freezer.d / 2 },
     { minX: 10.3, maxX: 12, minZ: -2.4, maxZ: 0.4 },
     { minX: -2.8, maxX: 2.8, minZ: -9, maxZ: -8.1 },
   ];
@@ -854,6 +914,7 @@ export function objective(s: Sim): Objective {
   const { mode, carrying } = s.player;
   const consoleAt = { ...BASE.console, y: 2.2 };
   const tableAt = { ...BASE.packTable, y: 2.0 };
+  const freezerAt = { x: BASE.freezer.x, z: BASE.freezer.z, y: 1.9 };
   const rackAt = { ...BASE.batteryRack, y: 2.4 };
   const padAt = (i: number) => ({ ...BASE.pads[i], y: 2.6 });
   const bayFor = (id: ProductId) => PRODUCTS.findIndex(product => product.id === id);
@@ -874,6 +935,11 @@ export function objective(s: Sim): Objective {
     if (carrying?.kind === 'crate') {
       if (free && !free.fault) return floor(`${free.idx + 1}번 패드의 ${droneName(free.idx)}에 상자 연결`, step, padAt(free.idx));
       return floor('상자를 포장대에 내려놓기', step, tableAt);
+    }
+    if (carrying?.kind === 'icepack') {
+      const order = s.box ? orderById(s, s.box.orderId) : waiting;
+      if (order && hasTag(order, 'cold') && !s.box?.icePack) return floor('포장대 상자에 아이스팩 넣기', step, tableAt);
+      return floor('냉동고에 아이스팩 돌려놓기', step, freezerAt);
     }
     return floor('충전 거치대에 배터리 반납', step, rackAt);
   };
@@ -901,15 +967,16 @@ export function objective(s: Sim): Objective {
     }
     return floor(`${droneName(low.idx)} 배터리 ${Math.round(low.battery)}% — 충전 거치대에서 배터리 가져오기`, 'service', rackAt);
   }
-  if (carrying) return putAway(carrying.kind === 'item' ? 'pick' : 'attach');
+  if (carrying) return putAway(carrying.kind === 'crate' ? 'attach' : 'pick');
 
   const ready = s.drones.find(d => d.state === 'pad' && d.orderId != null);
   if (s.box) {
     const box = s.box;
     const order = orderById(s, box.orderId)!;
-    if (box.checked && free) return floor('포장대에서 [E] 상자 봉인', 'seal', tableAt);
+    if (box.checked && free) return floor(`포장대에서 [E] 상자 봉인${hasTag(order, 'cold') ? ` · 보냉 ${SCORE.coldLimit}초 시작` : ''}`, 'seal', tableAt);
     if (!box.checked) {
       const missing = order.items.find(line => packedQty(box, line.product) < line.qty);
+      if (!missing && hasTag(order, 'cold') && !box.icePack) return floor('냉장 주문 — 냉동고에서 아이스팩 1개 꺼내기', 'pick', freezerAt);
       if (!missing) return floor('포장대에서 [E] 포장 확인', 'check', tableAt);
       const bay = bayFor(missing.product);
       const product = PRODUCTS[bay];
