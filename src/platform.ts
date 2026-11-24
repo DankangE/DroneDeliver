@@ -285,15 +285,20 @@ async function putProgress(): Promise<void> {
   const sending = rev;
   try {
     await flushPlays();
+    // Plays still waiting (offline / 5xx) are unproven: keep the save dirty and retry rather than store their scores.
+    if (pending.length) throw err('network');
     const cur = await getProgress();
+    stillOurs();
     const known = revision;
     const others = known != null && revOf(cur) != null && revOf(cur) !== known;
     adopt(cur, true); // unsaved local changes are about to be sent: merge, never replace
     let notify = others;
+    stillOurs();
     let r = await putProgressOnce(revision, Math.max(Date.now(), (Number(cur.progressAt) || 0) + 1));
     if (r.conflict) {
       notify = true;
       adopt(r, true);
+      stillOurs();
       r = await putProgressOnce(revision, Math.max(Date.now(), (Number(r.progressAt) || 0) + 1));
     }
     if (r.conflict) {
@@ -308,6 +313,7 @@ async function putProgress(): Promise<void> {
     const x = e as ApiError;
     if (x.code === 'user_mismatch') lost = 'switched';
     else if (x.status === 401) lost = 'expired';
+    else if (x.code === 'locked') { /* another tab took over mid-save: nothing more to send; take-over re-saves */ }
     else if (x.code === 'network' || x.code === 'conflict') {
       // Unreachable or busy: keep the progress in memory and retry 15 s, 30 s, ... up to 5 min (also sent with the next shift).
       saveWait = Math.min(300_000, saveWait * 2 || 15_000);
@@ -315,6 +321,11 @@ async function putProgress(): Promise<void> {
     } else console.error('progress save failed', x);
     throw x;
   }
+}
+
+/** Another tab may have claimed the account while a request was in flight: send nothing more from this one. */
+function stillOurs() {
+  if (locked) throw err('locked');
 }
 
 /** Re-read the server copy (tab became visible again, take-over, rejected play) and show what changed. */
