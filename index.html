@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>하늘길 택배</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23ffd23f'/%3E%3Cpath d='M3 4h10M3 12h10M8 4v8' stroke='%23111' stroke-width='2'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" />
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="console-ui" class="hidden">
+    <div id="feed-frame"></div>
+    <div id="console-controls">
+      <div id="exit-prompt" class="hidden">
+        <kbd aria-hidden="true">Q</kbd>
+        <div><strong>Q를 눌러 콘솔에서 나가기</strong><div id="exit-next"></div></div>
+      </div>
+      <div id="exit-hint" class="hidden"><kbd>Q</kbd> 나가서 다음 주문 준비 · 비행은 자동입니다</div>
+      <div id="guide"></div>
+      <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
+    </div>
+  </div>
+  <div id="left" class="panel-col">
+    <div id="drones"></div>
+    <div class="panel console-telemetry">
+      <div id="feed-head"><span class="rec">● 실시간</span><span id="feed-title"></span></div>
+      <div id="drone-tabs"></div>
+    </div>
+  </div>
+  <div id="hud-heading">
+    <div id="topbar">
+      <div class="stage-name" id="stage-name"></div>
+      <div class="score-row"><span id="score">0</span><span class="slash">/</span><span id="target">0</span><span class="unit">점</span></div>
+      <div class="bar"><div id="score-fill"></div></div>
+      <div class="meta-row"><span id="clock">0:00</span><span id="combo"></span><span id="wind"></span></div>
+    </div>
+    <div id="objective">
+      <ol id="steps" aria-label="배송 단계"></ol>
+      <div class="objective-line"><span class="tag">다음</span><span id="objective-text" role="status"></span></div>
+    </div>
+    <div id="banner"></div>
+  </div>
+  <div id="right" class="panel-col">
+    <div class="panel">
+      <div class="panel-title">주문</div>
+      <div id="orders"></div>
+    </div>
+    <div id="feed"></div>
+    <div id="instruments">
+      <canvas id="minimap" width="240" height="240" aria-label="드론 위치 지도"></canvas>
+      <div id="keys"></div>
+    </div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="prompt"><span id="prompt-text"></span><div id="hold-ring"><div id="hold-fill"></div></div></div>
+  <div id="carry"></div>
+  <div id="popups"></div>
+</div>
+
+<div id="screen" class="screen">
+  <div class="card" id="screen-card"></div>
+</div>
+
+<div id="small-screen" class="screen">
+  <div class="card">
+    <h1>PC 전용 게임</h1>
+    <p>하늘길 택배는 키보드와 마우스로 하는 1인칭 게임입니다. 가로 900px 이상인 데스크톱이나 노트북 브라우저에서 열어 주세요.</p>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

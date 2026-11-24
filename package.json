@@ -1,0 +1,24 @@
+{
+  "name": "drone-deliver",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "verify": "tsc --noEmit && vite build",
+    "playtest": "node scripts/playtest.mjs",
+    "fps": "node scripts/fps.mjs"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "playwright-core": "^1.49.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
