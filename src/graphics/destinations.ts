@@ -336,19 +336,78 @@ function school(site: Site) {
   site.bench(-10.9, -10.55); site.bench(8.9, -10.55);
 }
 
+/** Six-storey tower; the delivery pad (an H in the ring) is the 22 m square roof at `dest.y`. */
+function roofTower(site: Site) {
+  const { m, s } = site, top = site.dest.y, accent = paintedSteel(0x3f7f78);
+  site.floor(30, 30, s.floor, 0, 0);
+  site.block(22, top, 22, m.plaster, 0, top / 2, 0);
+  for (let f = 0; f < 6; f++) {
+    const y = 1.6 + f * 3;
+    for (let x = -8.4; x <= 8.5; x += 2.8) site.window(x, y, 11.03, 1.7, 1.45, f === 0 && Math.abs(x) < 2);
+    site.block(22.2, 0.18, 0.4, m.chalk, 0, y + 1.25, 11.1);
+  }
+  for (const x of [-11.05, 11.05]) site.block(0.3, top, 22.1, m.slate, x, top / 2, 0);
+  site.block(22.4, 0.16, 22.4, m.membrane, 0, top + 0.08, 0);
+  for (const side of [-1, 1]) {
+    site.block(22.4, 0.9, 0.25, m.plaster, 0, top + 0.45, side * 11.07);
+    site.block(0.25, 0.9, 22.4, m.plaster, side * 11.07, top + 0.45, 0);
+  }
+  site.block(3.2, 2.6, 2.6, m.slate, -8.2, top + 1.3, -8.2);
+  site.block(3.4, 0.2, 2.8, accent, -8.2, top + 2.7, -8.2);
+  site.board(site.dest.name.replace(' 옥상', ''), '옥상 드론 패드', '#3f7f78', 7.4, 1.3, 0, 3.4, 11.12);
+  site.block(3.2, 2.5, 0.5, m.frame, 0, 1.25, 11.2);
+}
+
+/** Four-storey villa; the cradle (a railed tray in the stop colour) sticks out of the third-floor
+ *  balcony toward the base with its floor at `dest.y`. The facade is 1.5 m behind the cradle centre. */
+function balconyVilla(site: Site) {
+  const { m, s } = site, h = 12.2, cradle = site.dest.y, depth = 12, z0 = -1.5 - depth / 2;
+  const tray = paintedSteel(site.dest.color);
+  site.floor(26, 22, s.floor, 0, -6);
+  site.block(17, h, depth, site.dest.id === 'H8' ? m.clay : m.brick, 0, h / 2, z0);
+  site.flatRoof(0, h, z0, 17, depth);
+  for (let f = 0; f < 4; f++) {
+    const y = 1.6 + f * 3;
+    for (const x of [-6, -2, 2, 6]) site.window(x, y, -1.48, 1.6, 1.5);
+    if (f === 0) continue;
+    // Plain balconies on each floor; the middle one on the cradle floor is the drop point.
+    for (const x of [-5.4, 5.4]) {
+      site.block(3.6, 0.2, 1.3, m.chalk, x, f * 3, -0.85);
+      site.block(3.6, 0.9, 0.08, m.frame, x, f * 3 + 0.55, -0.2);
+    }
+  }
+  site.block(3.2, 0.24, 2.7, tray, 0, cradle - 0.12, -0.15);
+  for (const x of [-1.6, 1.6]) site.block(0.08, 0.5, 2.7, m.frame, x, cradle + 0.25, -0.15);
+  site.block(3.2, 0.5, 0.08, m.frame, 0, cradle + 0.25, 1.2);
+  for (const x of [-1.5, 1.5]) site.block(0.12, 0.12, 1.6, m.zinc, x, cradle - 0.5, -0.7).rotation.x = -0.6;
+  site.board(site.dest.name.replace(' 베란다', ''), '베란다 거치대 배송', '#6a4d5c', 5.2, 1.0, 0, 3.0, -1.4);
+  site.block(2.2, 2.4, 0.4, m.frame, 0, 1.2, -1.35);
+}
+
 // Keep the original dimensions, display-space colours, and depth behavior of the
 // landing target, beacon and floating label. The scenic facade signs use PBR.
 function deliveryMark(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, d: Destination, zinc: THREE.Material) {
-  const slab = new THREE.CircleGeometry(9.12, 96);
-  const uv = slab.getAttribute('uv');
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 18.24, uv.getY(i) * 18.24);
-  solid(scene, slab, s.floor, d.x, 0.048, d.z).rotation.x = -halfTurn / 2;
-  for (const [r0, r1, color, opacity] of [[7.6, 9, 0xffffff, 0.55], [3.8, 5, d.color, 0.9], [0, 2, 0xffffff, 0.45]]) {
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 96), ink({ color, transparent: true, opacity, depthWrite: false }));
-    ring.rotation.x = -halfTurn / 2; ring.position.set(d.x, 0.06, d.z); marks.add(ring);
+  if (d.kind === 'ground') {
+    const slab = new THREE.CircleGeometry(9.12, 96);
+    const uv = slab.getAttribute('uv');
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 18.24, uv.getY(i) * 18.24);
+    solid(scene, slab, s.floor, d.x, 0.048, d.z).rotation.x = -halfTurn / 2;
   }
-  box(scene, 0.3, 14, 0.3, zinc, d.x + 10.5, 7, d.z);
-  solid(scene, new THREE.SphereGeometry(0.7, 24, 16), emissiveLedPanel(d.color, 2), d.x + 10.5, 14.5, d.z);
+  // Ground and roof rings match the drop grades; the balcony rings match the winch grades (1 / 2 / 3 m).
+  const rings: [number, number, number, number][] = d.kind === 'balcony'
+    ? [[2.75, 3, 0xffffff, 0.6], [1.75, 2, d.color, 0.95], [0, 1, 0xffffff, 0.5]]
+    : [[7.6, 9, 0xffffff, 0.55], [3.8, 5, d.color, 0.9], [0, 2, 0xffffff, 0.45]];
+  // Roof rings sit just above the 0.16 m membrane.
+  const surface = d.y + (d.kind === 'roof' ? 0.2 : 0.06);
+  for (const [r0, r1, color, opacity] of rings) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 96), ink({ color, transparent: true, opacity, depthWrite: false }));
+    ring.rotation.x = -halfTurn / 2; ring.position.set(d.x, surface, d.z); marks.add(ring);
+  }
+  if (d.kind === 'roof') roofH(marks, d);
+  // Ground: pole beside the ring. Roof: short mast on the roof edge. Balcony: mast on the villa roof.
+  const pole = d.kind === 'ground' ? { x: d.x + 10.5, z: d.z, y0: 0, h: 14 } : d.kind === 'roof' ? { x: d.x + 10.5, z: d.z, y0: d.y, h: 4 } : { x: d.x + d.x / Math.hypot(d.x, d.z) * 7.5, z: d.z + d.z / Math.hypot(d.x, d.z) * 7.5, y0: 12.4, h: 4 };
+  box(scene, 0.3, pole.h, 0.3, zinc, pole.x, pole.y0 + pole.h / 2, pole.z);
+  solid(scene, new THREE.SphereGeometry(0.7, 24, 16), emissiveLedPanel(d.color, 2), pole.x, pole.y0 + pole.h + 0.5, pole.z);
   const map = canvasTex(512, 160, g => {
     g.fillStyle = '#172328'; g.fillRect(0, 0, 512, 160);
     g.strokeStyle = '#788482'; g.lineWidth = 3; g.strokeRect(3, 3, 506, 154);
@@ -359,12 +418,27 @@ function deliveryMark(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces, d: De
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map, depthTest: false, depthWrite: false, fog: false, toneMapped: false, sizeAttenuation: false,
   }));
-  sprite.scale.set(0.16, 0.05, 1); sprite.position.set(d.x, 22, d.z); sprite.renderOrder = 5;
+  sprite.scale.set(0.16, 0.05, 1); sprite.position.set(d.x, Math.max(22, d.y + 14), d.z); sprite.renderOrder = 5;
   marks.add(sprite);
   return sprite;
 }
 
-const sites: Record<string, (site: Site) => void> = { A1: clinic, B2: harbour, C3: farm, D4: millCafe, E5: terrace, F6: school };
+/** The painted H of a rooftop pad, inside the 2 m ring. */
+function roofH(marks: THREE.Scene, d: Destination) {
+  const mat = ink({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false });
+  const h = new THREE.Group();
+  for (const [w, dz, x] of [[0.32, 2.2, -0.75], [0.32, 2.2, 0.75], [1.2, 0.3, 0]]) {
+    const bar = new THREE.Mesh(new THREE.PlaneGeometry(w, dz), mat);
+    bar.rotation.x = -halfTurn / 2; bar.position.x = x; h.add(bar);
+  }
+  h.position.set(d.x, d.y + 0.21, d.z);
+  h.rotation.y = Math.atan2(-d.x, -d.z);
+  marks.add(h);
+}
+
+const sites: Record<string, (site: Site) => void> = {
+  A1: clinic, B2: harbour, C3: farm, D4: millCafe, E5: terrace, F6: school, G7: roofTower, H8: balconyVilla, I9: balconyVilla,
+};
 
 export function buildDestinations(scene: THREE.Scene, marks: THREE.Scene, s: Surfaces) {
   const materials = siteMaterials(s);

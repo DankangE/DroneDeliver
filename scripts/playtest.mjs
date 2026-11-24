@@ -1,12 +1,12 @@
 // Automated playtest: builds the game and serves it with Vite preview in-process, drives the game in
-// Chrome with real keyboard input plus the ?debug=1 hook, plays Stages 1-3 to the end, triggers and
-// resolves battery / GPS / rotor events, packs ice packs and steadies fragile drops on Stage 3, and
-// saves screenshots to docs/screenshots/.
+// Chrome with real keyboard input plus the ?debug=1 hook, plays Stages 1-4 to the end, triggers and
+// resolves battery / GPS / rotor events, packs ice packs and steadies fragile drops on Stage 3, drops on
+// the roof pad and winches boxes onto balcony cradles on Stage 4, and saves screenshots to docs/screenshots/.
 //
 //   npm run playtest                 # uses the installed Google Chrome
 //   CHROME_PATH=/path/to/chrome npm run playtest
 //   PLAYTEST_SPEED=3 npm run playtest   # game time-scale after the first trip
-//   PLAYTEST_ONLY=3 npm run playtest    # one stage
+//   PLAYTEST_ONLY=4 npm run playtest    # one stage
 //   PLAYTEST_FULL=1 npm run playtest    # ignore the target and play the whole shift (measures the bot score)
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -47,7 +47,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 const wait = (ms) => page.waitForTimeout(ms);
 const snap = () => page.evaluate(() => window.__game.snapshot());
 const g = (fn, arg) => page.evaluate(fn, arg);
-const results = { trips: [], events: [], stages: [], packTimes: [], packErrors: [], fragileDrops: [] };
+const results = { trips: [], events: [], stages: [], packTimes: [], packErrors: [], fragileDrops: [], winches: [] };
 
 async function shot(name) {
   const file = join(shots, `${name}.png`);
@@ -153,8 +153,65 @@ async function steerAndCommit(droneIdx, wantState, tolerance, steady = false) {
   return null;
 }
 
+async function steerToward(aim, dead) {
+  await setKey('d', aim.x > dead);
+  await setKey('a', aim.x < -dead);
+  await setKey('s', aim.z > dead);
+  await setKey('w', aim.z < -dead);
+}
+
+// Balcony: line the drone up over the cradle, hold Space to pay the rope out while steering the box
+// (aim() = cradle - box), then let go once the box is at cradle height, close and steady.
+async function winchDeliver(droneIdx) {
+  const t0 = Date.now();
+  let spaceDown = false, bottomAt = null, result = null;
+  const off = { x: 0, z: 0 };
+  const space = async (on) => {
+    if (on === spaceDown) return;
+    if (on) await page.keyboard.down('Space'); else await page.keyboard.up('Space');
+    spaceDown = on;
+  };
+  try {
+    while (Date.now() - t0 < 30000) {
+      const s = await snap();
+      if (s.phase !== 'playing') break;
+      const d = s.drones[droneIdx];
+      if ((d.state !== 'hold' && d.state !== 'winch') || d.fault) break;
+      const aim = await g(() => window.__game.aim());
+      const err = Math.hypot(aim.x, aim.z);
+      if (d.state === 'hold') {
+        if (err < 0.6 && d.hspeed < 0.8) { await releaseAll(); await space(true); await wait(60); continue; }
+      } else {
+        await space(true);
+        // Hold the hook upwind of the cradle by the box's average wind offset (box - hook).
+        const ox = aim.hook.x - aim.x, oz = aim.hook.z - aim.z;
+        off.x += (ox - off.x) * 0.08; off.z += (oz - off.z) * 0.08;
+        await steerToward({ x: aim.hook.x - off.x, z: aim.hook.z - off.z }, 0.3);
+        if (aim.rope >= aim.ropeMax - 0.05) {
+          bottomAt ??= Date.now();
+          const waited = (Date.now() - bottomAt) * speedNow / 1000;
+          if (!results.winchShot && waited > 0.5) { results.winchShot = true; await shot('19c-stage4-winch'); }
+          if ((err < 0.7 && aim.sway < 0.6) || (waited > 2 && err < 1 && aim.sway < 0.9) || (waited > 4.5 && err < 1.8) || waited > 10) {
+            await releaseAll();
+            await space(false);
+            result = { err: +err.toFixed(2), sway: aim.sway, waited: +waited.toFixed(1) };
+            await wait(80);
+            break;
+          }
+        }
+      }
+      if (d.state === 'hold') await steerToward(aim, 0.3);
+      await wait(30);
+    }
+  } finally {
+    await releaseAll();
+    await space(false);
+  }
+  return result;
+}
+
 async function handleAttention(s) {
-  const d = s.drones.find((dr) => dr.state === 'hold' || dr.state === 'approach' || (dr.fault === 'gps' && dr.state !== 'pad'));
+  const d = s.drones.find((dr) => dr.state === 'hold' || dr.state === 'winch' || dr.state === 'approach' || (dr.fault === 'gps' && dr.state !== 'pad'));
   if (!d) return false;
   if (!(await ensureConsole())) return false;
   await select(d.idx);
@@ -167,8 +224,18 @@ async function handleAttention(s) {
     results.events.push({ kind: 'gps-fixed', ok: after.drones[d.idx].fault === null });
     return true;
   }
+  const order = s.orders.find(o => o.id === d.orderId);
+  if ((d.state === 'hold' || d.state === 'winch') && order?.kind === 'balcony') {
+    const res = await winchDeliver(d.idx);
+    if (res) {
+      const graded = (await g(() => window.__game.log.filter(e => e.kind === 'winch-release').at(-1)?.value)) ?? res.err;
+      console.log(`  drone ${d.idx + 1} winch release at ${order.dest} (box error ${graded.toFixed(2)} m, sway ${res.sway} m/s, waited ${res.waited}s)`);
+      results.winches.push({ dest: order.dest, err: +graded.toFixed(2), sway: res.sway });
+    }
+    return true;
+  }
   if (d.state === 'hold') {
-    const order = s.orders.find(o => o.id === d.orderId);
+    if (order?.kind === 'roof' && !results.roofShot) { results.roofShot = true; await wait(400); await shot('19b-stage4-roof-drop'); }
     const fragile = !!order?.tags.includes('fragile');
     if (!results.holdShot) { results.holdShot = true; await wait(400); await shot('05-console-drop-view'); }
     if (fragile && !results.gaugeShot) {
@@ -331,7 +398,7 @@ async function playStage(stageId, { forcedEvents }) {
   console.log(`\n=== Stage ${stageId} ===`);
   await g((id) => { window.__game.showBriefing(id); }, stageId);
   await wait(200);
-  await shot({ 1: '01b-briefing-stage1', 2: '09-briefing-stage2', 3: '16a-briefing-stage3' }[stageId]);
+  await shot({ 1: '01b-briefing-stage1', 2: '09-briefing-stage2', 3: '16a-briefing-stage3', 4: '19a-briefing-stage4' }[stageId]);
   await page.click('#b-go');
   if (full) await g(() => { const s = window.__game.sim; s.stage = { ...s.stage, target: Infinity }; });
   speedNow = 1;
@@ -386,6 +453,15 @@ async function playStage(stageId, { forcedEvents }) {
   const end = await snap();
   const log = await g(() => window.__game.log.filter((e) => e.stage === window.__game.sim.stage.id));
   const trips = log.filter((e) => e.kind === 'touchdown').map((e) => e.value);
+  // Pair each touchdown with the drone's last launch to get the round trip per destination.
+  const destOf = new Map(end.orders.map((o) => [o.id, o.dest]));
+  const lastLaunch = new Map();
+  const byDest = {};
+  for (const e of log) {
+    if (e.kind === 'launch') lastLaunch.set(e.drone, destOf.get(e.value));
+    if (e.kind === 'touchdown' && lastLaunch.has(e.drone)) (byDest[lastLaunch.get(e.drone)] ??= []).push(+e.value.toFixed(1));
+  }
+  console.log(`  round trips by destination: ${JSON.stringify(byDest)}`);
   const starts = new Map();
   for (const event of log) {
     if (event.kind === 'packing') starts.set(event.value, event.t);
@@ -396,10 +472,10 @@ async function playStage(stageId, { forcedEvents }) {
   }
   console.log(`  phase=${end.phase} score=${end.score}/${end.targetScore} gameTime=${end.time}s trips=${trips.map((t) => t.toFixed(1)).join(', ')}`);
   results.trips.push(...trips.map((t) => ({ stage: stageId, t })));
-  results.stages.push({ stage: stageId, phase: end.phase, score: end.score, time: end.time, stats: end.stats, scoreline });
+  results.stages.push({ stage: stageId, phase: end.phase, score: end.score, time: end.time, stats: end.stats, scoreline, byDest });
   console.log(`  score after each delivery: ${scoreline.map((p) => `${p.score}@${p.t}s`).join(', ')}`);
   await wait(300);
-  if (!full) await shot({ 1: '11-stage1-clear', 2: '12-stage2-clear', 3: '18-stage3-clear' }[stageId]);
+  if (!full) await shot({ 1: '11-stage1-clear', 2: '12-stage2-clear', 3: '18-stage3-clear', 4: '20-stage4-clear' }[stageId]);
 }
 
 let exitCode = 0;
@@ -409,7 +485,7 @@ try {
   productIds = await g(() => window.__game.products.map(p => p.id));
   await wait(800);
   await shot('01-title');
-  for (const stageId of only ? [Number(only)] : [1, 2, 3]) await playStage(stageId, { forcedEvents: true });
+  for (const stageId of only ? [Number(only)] : [1, 2, 3, 4]) await playStage(stageId, { forcedEvents: true });
   if (!full) await finalChecks();
 } catch (e) {
   console.error('\nPLAYTEST ABORTED:', e);

@@ -1,6 +1,6 @@
-import { BASE, DESTINATIONS, FLIGHT, PRODUCTS, SCORE, STAGES, bayLetter, productById, TAG_LABEL, type CargoTag, type ProductId, type Destination, type StageDef } from './config';
+import { BASE, FLIGHT, PRODUCTS, SCORE, STAGES, WINCH, bayLetter, productById, stageDestinations, TAG_LABEL, type CargoTag, type ProductId, type Destination, type StageDef } from './config';
 
-export type DroneState = 'pad' | 'takeoff' | 'outbound' | 'hold' | 'returning' | 'approach' | 'landing' | 'down';
+export type DroneState = 'pad' | 'takeoff' | 'outbound' | 'hold' | 'winch' | 'returning' | 'approach' | 'landing' | 'down';
 export type Fault = 'gps' | 'motor' | null;
 export type Phase = 'briefing' | 'playing' | 'clear' | 'fail';
 export type OrderStatus = 'waiting' | 'packing' | 'carried' | 'loaded' | 'flying' | 'delivered' | 'missed' | 'expired' | 'lost';
@@ -42,10 +42,17 @@ export interface Drone {
   warnedLow: boolean;
   warnedCritical: boolean;
   flights: number;
+  /** Winch rope paid out below the loaded position (m); reels back in after a release. */
+  rope: number;
+  /** Hanging box, horizontal world position and velocity; the box swings under the hook while `winch`. */
+  bob: { x: number; z: number; vx: number; vz: number };
+  /** Space was held for this drone last step; letting go at full rope releases the box. */
+  winchHeld: boolean;
 }
 
-/** `dropSpeed`: the drone's horizontal speed when it let go; judges fragile cargo. */
-export interface Package { orderId: number; pos: V3; vel: V3; drone: number; dropSpeed: number }
+/** `dropSpeed`: the drone's horizontal speed when it let go; judges fragile cargo.
+ *  `floor`: height the drop is judged at. `lost`: already judged a miss, falls to the ground and vanishes. */
+export interface Package { orderId: number; pos: V3; vel: V3; drone: number; dropSpeed: number; floor: number; lost: boolean }
 
 export type Carry = { kind: 'item'; product: ProductId } | { kind: 'crate'; orderId: number } | { kind: 'battery' } | { kind: 'icepack' } | null;
 
@@ -81,9 +88,11 @@ export interface Input {
   nudge: { x: number; z: number };
   interactHeld: boolean;
   fixHeld: boolean;
+  /** Space held at the console; pays out the winch rope. */
+  winchHeld: boolean;
 }
 
-export interface Stats { delivered: number; perfect: number; good: number; missed: number; expired: number; crashes: number; faultsFixed: number; swaps: number; bestStreak: number; trips: number[]; coldKept: number; coldWarm: number; fragileSafe: number; broken: number }
+export interface Stats { delivered: number; perfect: number; good: number; missed: number; expired: number; crashes: number; faultsFixed: number; swaps: number; bestStreak: number; trips: number[]; coldKept: number; coldWarm: number; fragileSafe: number; broken: number; balcony: number; balconyLost: number }
 
 export interface Sim {
   stage: StageDef;
@@ -118,12 +127,12 @@ export function createSim(stageId: number): Sim {
     drones.push({
       idx: i, state: 'pad', pos: v3(p.x, 0, p.z), vel: v3(), yaw: 0, battery: 100, fault: null,
       orderId: null, fixProgress: 0, faultAt: null, hardLanding: false, downTimer: 0, tripStart: 0,
-      warnedLow: false, warnedCritical: false, flights: 0,
+      warnedLow: false, warnedCritical: false, flights: 0, rope: 0, bob: { x: p.x, z: p.z, vx: 0, vz: 0 }, winchHeld: false,
     });
   }
   return {
     stage, phase: 'briefing', time: 0, timeLeft: stage.timeLimit, score: 0, streak: 0,
-    stats: { delivered: 0, perfect: 0, good: 0, missed: 0, expired: 0, crashes: 0, faultsFixed: 0, swaps: 0, bestStreak: 0, trips: [], coldKept: 0, coldWarm: 0, fragileSafe: 0, broken: 0 },
+    stats: { delivered: 0, perfect: 0, good: 0, missed: 0, expired: 0, crashes: 0, faultsFixed: 0, swaps: 0, bestStreak: 0, trips: [], coldKept: 0, coldWarm: 0, fragileSafe: 0, broken: 0, balcony: 0, balconyLost: 0 },
     orders: [], box: null, drones, packages: [], wind: { x: 0, z: 0 }, windSeed: Math.random() * 100, selected: 0,
     nextOrderAt: 1.5, nextOrderId: 1,
     player: { x: BASE.playerStart.x, z: BASE.playerStart.z, yaw: BASE.playerStart.yaw, pitch: -0.05, mode: 'walk', carrying: null, holdProgress: 0 },
@@ -138,6 +147,13 @@ export const droneName = (i: number) => `${i + 1}번 드론`;
 export const GRADE_LABEL: Record<Grade, string> = { PERFECT: '완벽', GOOD: '우수', OK: '양호', MISS: '빗나감' };
 export const orderById = (s: Sim, id: number | null) => (id == null ? undefined : s.orders.find((o) => o.id === id));
 const isFlying = (d: Drone) => d.state !== 'pad' && d.state !== 'down';
+/** Hover height over a destination: 12 m over the ground, a clearance above roofs and cradles. */
+export const holdAltitude = (dest: Destination) =>
+  dest.kind === 'roof' ? dest.y + FLIGHT.roofClearance : dest.kind === 'balcony' ? dest.y + FLIGHT.balconyClearance : FLIGHT.holdAlt;
+/** Crate centre while it hangs on the winch, and the rope length that sets it on the cradle. */
+export const hangingY = (d: Drone) => d.pos.y + 0.36 - d.rope;
+export const ropeMax = (d: Drone, dest: Destination) => Math.max(0, d.pos.y + 0.36 - (dest.y + 0.35));
+export const swaySpeed = (d: Drone) => Math.hypot(d.bob.vx - d.vel.x, d.bob.vz - d.vel.z);
 export const comboMult = (streak: number) => Math.min(1 + streak * SCORE.comboStep, SCORE.comboMax);
 
 // ---------------------------------------------------------------- orders
@@ -183,7 +199,7 @@ const nextWaiting = (s: Sim) => s.orders.reduce<Order | undefined>((next, o) =>
   o.status === 'waiting' && (!next || o.deadline < next.deadline) ? o : next, undefined);
 
 function spawnOrder(s: Sim) {
-  const choices = DESTINATIONS.filter((d) => d.id !== s.lastDest);
+  const choices = stageDestinations(s.stage).filter((d) => d.id !== s.lastDest);
   const dest = choices[Math.floor(Math.random() * choices.length)];
   s.lastDest = dest.id;
   const items = orderItems(s.stage);
@@ -344,6 +360,7 @@ export function stateLabel(d: Drone): string {
     case 'takeoff': return '이륙';
     case 'outbound': return '배송 중';
     case 'hold': return '투하 대기';
+    case 'winch': return '윈치 하강';
     case 'returning': return '복귀 중';
     case 'approach': return '착륙 대기';
     case 'landing': return '착륙 중';
@@ -352,7 +369,7 @@ export function stateLabel(d: Drone): string {
 }
 
 export function needsAttention(d: Drone): boolean {
-  return d.state === 'hold' || d.state === 'approach' || (d.fault === 'gps' && isFlying(d));
+  return d.state === 'hold' || d.state === 'winch' || d.state === 'approach' || (d.fault === 'gps' && isFlying(d));
 }
 
 // ---------------------------------------------------------------- player actions
@@ -513,7 +530,15 @@ export function consoleAction(s: Sim): ConsoleAction {
       if (d.orderId == null) return { label: '출발', enabled: false, reason: '연결된 화물 없음' };
       if (d.battery < FLIGHT.lowBattery) return { label: '출발', enabled: false, reason: `배터리 ${Math.round(d.battery)}% — 패드에서 교체` };
       return { label: '[Space] 출발', enabled: true };
-    case 'hold': return { label: '[Space] 택배 투하', enabled: true };
+    case 'hold':
+      return orderById(s, d.orderId)?.dest.kind === 'balcony'
+        ? { label: '[Space 길게] 윈치로 내리기', enabled: true, reason: '베란다는 투하 금지 — 줄로 내려 거치대에 놓습니다' }
+        : { label: '[Space] 택배 투하', enabled: true };
+    case 'winch': {
+      const o = orderById(s, d.orderId)!;
+      if (d.rope < ropeMax(d, o.dest) - 0.05) return { label: '[Space 길게] 줄 내리기', enabled: true, reason: `줄 ${d.rope.toFixed(1)} / ${ropeMax(d, o.dest).toFixed(1)} m` };
+      return { label: '[Space 떼기] 거치대에 내려놓기', enabled: true, reason: '흔들림이 잦아들고 상자가 거치대 위일 때 떼세요' };
+    }
     case 'approach': return { label: '[Space] 착륙 시작', enabled: true };
     case 'down': return { label: '회수반 출동 중', enabled: false };
     default: return { label: stateLabel(d), enabled: false };
@@ -526,6 +551,7 @@ export function consolePrimary(s: Sim) {
   const a = consoleAction(s);
   if (!a.enabled) { sfx(s, 'deny'); return; }
   if (d.state === 'pad') launch(s, d);
+  else if (d.state === 'hold' && orderById(s, d.orderId)?.dest.kind === 'balcony') startWinch(s, d);
   else if (d.state === 'hold') drop(s, d);
   else if (d.state === 'approach') beginLanding(s, d);
 }
@@ -548,11 +574,80 @@ function launch(s: Sim, d: Drone) {
 
 function drop(s: Sim, d: Drone) {
   const dropSpeed = Math.hypot(d.vel.x, d.vel.z);
-  s.packages.push({ orderId: d.orderId!, pos: { ...d.pos, y: d.pos.y - 0.6 }, vel: { x: d.vel.x, y: 0, z: d.vel.z }, drone: d.idx, dropSpeed });
+  const floor = orderById(s, d.orderId)!.dest.y;
+  s.packages.push({ orderId: d.orderId!, pos: { ...d.pos, y: d.pos.y - 0.6 }, vel: { x: d.vel.x, y: 0, z: d.vel.z }, drone: d.idx, dropSpeed, floor, lost: false });
   d.orderId = null;
   d.state = 'returning';
   sfx(s, 'drop');
   emit(s, { type: 'log', kind: 'drop', drone: d.idx, value: dropSpeed });
+}
+
+function startWinch(s: Sim, d: Drone) {
+  d.state = 'winch';
+  d.rope = 0;
+  d.bob = { x: d.pos.x, z: d.pos.z, vx: d.vel.x, vz: d.vel.z };
+  d.winchHeld = false;
+  sfx(s, 'attach');
+  emit(s, { type: 'log', kind: 'winch-start', drone: d.idx });
+}
+
+/** Input was interrupted (pause, lost focus): forget that Space was down so the next key-up is not read as
+ *  a release. The player presses Space again to re-arm the winch. */
+export function disarmWinch(s: Sim) {
+  for (const d of s.drones) d.winchHeld = false;
+}
+
+/** Pays the rope out while Space is held and swings the box like a pendulum under the hook; letting go
+ *  at full rope sets the box down, graded by its distance from the cradle centre. */
+function updateWinch(s: Sim, d: Drone, input: Input, dt: number, o: Order) {
+  const active = s.player.mode === 'console' && s.selected === d.idx;
+  const held = active && input.winchHeld;
+  const max = ropeMax(d, o.dest);
+  const bottom = d.rope >= max - 0.05;
+  if (d.winchHeld && !held && active && bottom) { releaseWinch(s, d, o); return; }
+  d.winchHeld = held;
+  if (held) d.rope = Math.min(max, d.rope + WINCH.lowerSpeed * dt);
+  d.rope = Math.min(d.rope, max);
+  // Small-angle pendulum: rope tension pulls the box back under the hook, the gusting wind pushes it.
+  const b = d.bob;
+  const k = 9.8 / (d.rope + 0.6);
+  const gust = 1 + 0.5 * Math.sin(s.time * 1.9 + d.idx * 2.1);
+  const cross = 0.35 * s.stage.windBase * Math.sin(s.time * 1.3 + d.idx);
+  const ax = -k * (b.x - d.pos.x) + WINCH.windPush * (s.wind.x * gust - s.wind.z / (Math.hypot(s.wind.x, s.wind.z) || 1) * cross) - WINCH.damping * (b.vx - d.vel.x);
+  const az = -k * (b.z - d.pos.z) + WINCH.windPush * (s.wind.z * gust + s.wind.x / (Math.hypot(s.wind.x, s.wind.z) || 1) * cross) - WINCH.damping * (b.vz - d.vel.z);
+  b.vx += ax * dt; b.vz += az * dt;
+  b.x += b.vx * dt; b.z += b.vz * dt;
+  const reach = 0.6 * d.rope + 0.05;
+  const off = Math.hypot(b.x - d.pos.x, b.z - d.pos.z);
+  if (off > reach) {
+    b.x = d.pos.x + (b.x - d.pos.x) * reach / off;
+    b.z = d.pos.z + (b.z - d.pos.z) * reach / off;
+  }
+}
+
+export function balconyGrade(dist: number): Grade {
+  if (dist <= SCORE.balconyPerfect) return 'PERFECT';
+  if (dist <= SCORE.balconyGood) return 'GOOD';
+  if (dist <= SCORE.balconyOk) return 'OK';
+  return 'MISS';
+}
+
+function releaseWinch(s: Sim, d: Drone, o: Order) {
+  const dist = Math.hypot(d.bob.x - o.dest.x, d.bob.z - o.dest.z);
+  const grade = balconyGrade(dist);
+  d.orderId = null;
+  d.winchHeld = false;
+  d.state = 'returning';
+  emit(s, { type: 'log', kind: 'winch-release', drone: d.idx, value: dist });
+  if (grade === 'MISS') {
+    // The box slips past the cradle and falls to the street.
+    s.packages.push({ orderId: o.id, pos: { x: d.bob.x, y: hangingY(d), z: d.bob.z }, vel: { x: d.bob.vx, y: 0, z: d.bob.vz }, drone: d.idx, dropSpeed: 0, floor: 0, lost: true });
+    s.stats.balconyLost++;
+    missOrder(s, o, dist, `${o.dest.name} 상자가 거치대를 벗어나 떨어졌습니다 — 분실`);
+    return;
+  }
+  s.stats.balcony++;
+  deliverOrder(s, o, grade, d.idx, { bonus: SCORE.balconyBonus, label: '베란다', dropSpeed: 0 });
 }
 
 function beginLanding(s: Sim, d: Drone) {
@@ -581,10 +676,10 @@ function moveToward(d: Drone, tx: number, ty: number, tz: number, dt: number, sp
   return dist;
 }
 
-function hover(s: Sim, d: Drone, input: Input, dt: number, ty: number) {
+function hover(s: Sim, d: Drone, input: Input, dt: number, ty: number, nudgeSpeed = FLIGHT.nudgeSpeed) {
   const steer = s.player.mode === 'console' && s.selected === d.idx ? input.nudge : { x: 0, z: 0 };
-  const wx = s.wind.x * 0.45 + steer.x * FLIGHT.nudgeSpeed;
-  const wz = s.wind.z * 0.45 + steer.z * FLIGHT.nudgeSpeed;
+  const wx = s.wind.x * 0.45 + steer.x * nudgeSpeed;
+  const wz = s.wind.z * 0.45 + steer.z * nudgeSpeed;
   const k = Math.min(1, dt * 3);
   d.vel.x += (wx - d.vel.x) * k;
   d.vel.z += (wz - d.vel.z) * k;
@@ -594,16 +689,17 @@ function hover(s: Sim, d: Drone, input: Input, dt: number, ty: number) {
   d.pos.y += d.vel.y * dt;
 }
 
-function legAltitude(dist: number) {
-  return dist < 50 ? FLIGHT.holdAlt + (FLIGHT.cruiseAlt - FLIGHT.holdAlt) * Math.max(0, (dist - 8) / 42) : FLIGHT.cruiseAlt;
+function legAltitude(dist: number, hold: number = FLIGHT.holdAlt) {
+  return dist < 50 ? hold + (FLIGHT.cruiseAlt - hold) * Math.max(0, (dist - 8) / 42) : FLIGHT.cruiseAlt;
 }
 
 function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
   const pad = BASE.pads[d.idx];
   const order = orderById(s, d.orderId);
 
+  if (d.state !== 'winch' && d.rope > 0) d.rope = Math.max(0, d.rope - WINCH.reelSpeed * dt);
   if (isFlying(d)) {
-    const drain = d.state === 'hold' || d.state === 'approach' || d.fault === 'gps' ? FLIGHT.drainHover : FLIGHT.drainFlying;
+    const drain = d.state === 'hold' || d.state === 'winch' || d.state === 'approach' || d.fault === 'gps' ? FLIGHT.drainHover : FLIGHT.drainFlying;
     d.battery = Math.max(0, d.battery - drain * dt);
     if (!d.warnedLow && d.battery < FLIGHT.lowBattery) { d.warnedLow = true; note(s, `${droneName(d.idx)} 배터리 부족 (${Math.round(d.battery)}%) — 착륙 후 교체`, 'warn'); }
     if (!d.warnedCritical && d.battery < FLIGHT.criticalBattery) {
@@ -643,17 +739,26 @@ function updateDrone(s: Sim, d: Drone, input: Input, dt: number) {
     case 'outbound': {
       if (!order) { d.state = 'returning'; break; }
       const dist = Math.hypot(order.dest.x - d.pos.x, order.dest.z - d.pos.z);
-      moveToward(d, order.dest.x, legAltitude(dist), order.dest.z, dt);
-      if (dist < 1.5 && Math.abs(d.pos.y - FLIGHT.holdAlt) < 1) {
+      const hold = holdAltitude(order.dest);
+      moveToward(d, order.dest.x, legAltitude(dist, hold), order.dest.z, dt);
+      if (dist < 1.5 && Math.abs(d.pos.y - hold) < 1) {
         d.state = 'hold';
-        emit(s, { type: 'banner', text: `${droneName(d.idx)} ${order.dest.name} 상공 — 콘솔에서 투하`, level: 'warn' });
+        const how = order.dest.kind === 'balcony' ? '윈치로 내려주기' : '투하';
+        emit(s, { type: 'banner', text: `${droneName(d.idx)} ${order.dest.name} 상공 — 콘솔에서 ${how}`, level: 'warn' });
         sfx(s, 'alarm');
         emit(s, { type: 'log', kind: 'arrive', drone: d.idx });
       }
       break;
     }
     case 'hold':
-      hover(s, d, input, dt, FLIGHT.holdAlt);
+      if (!order) { d.state = 'returning'; break; }
+      hover(s, d, input, dt, holdAltitude(order.dest));
+      break;
+    case 'winch':
+      if (!order) { d.state = 'returning'; break; }
+      // Fine steering while the box hangs, so the player can walk it over the cradle without pumping the swing.
+      hover(s, d, input, dt, holdAltitude(order.dest), WINCH.nudgeSpeed);
+      updateWinch(s, d, input, dt, order);
       break;
     case 'returning': {
       const dist = Math.hypot(pad.x - d.pos.x, pad.z - d.pos.z);
@@ -718,6 +823,7 @@ function crash(s: Sim, d: Drone) {
   const o = orderById(s, d.orderId);
   if (o) { o.status = 'lost'; d.orderId = null; }
   d.state = 'down';
+  d.winchHeld = false;
   d.fault = null;
   d.downTimer = 12;
   s.score = Math.max(0, s.score - SCORE.crashPenalty);
@@ -736,16 +842,18 @@ function updatePackages(s: Sim, dt: number) {
     p.pos.x += p.vel.x * dt;
     p.pos.y += p.vel.y * dt;
     p.pos.z += p.vel.z * dt;
-    if (p.pos.y <= 0.3) landPackage(s, p);
+    if (!p.lost && p.pos.y <= p.floor + 0.3) landPackage(s, p);
   }
-  s.packages = s.packages.filter((p) => p.pos.y > 0.3);
+  // Landed packages vanish; a missed roof drop keeps falling past the roof to the street.
+  s.packages = s.packages.filter((p) => p.lost ? p.pos.y > 0.3 : p.pos.y > p.floor + 0.3);
 }
 
-export function predictImpact(s: Sim, pos: V3, vel: V3): { x: number; z: number } {
+/** Where a drop from `pos` meets the plane at height `floor` (the destination surface). */
+export function predictImpact(s: Sim, pos: V3, vel: V3, floor = 0): { x: number; z: number } {
   const p = { ...pos, y: pos.y - 0.6 };
   const v = { x: vel.x, y: 0, z: vel.z };
   const dt = 1 / 60;
-  for (let i = 0; i < 600 && p.y > 0.3; i++) {
+  for (let i = 0; i < 600 && p.y > floor + 0.3; i++) {
     v.y -= 9.8 * dt;
     v.x += (s.wind.x - v.x) * 0.9 * dt;
     v.z += (s.wind.z - v.z) * 0.9 * dt;
@@ -764,18 +872,30 @@ export function gradeFor(dist: number): Grade {
 function landPackage(s: Sim, p: Package) {
   const o = orderById(s, p.orderId)!;
   const dist = Math.hypot(p.pos.x - o.dest.x, p.pos.z - o.dest.z);
-  let grade = gradeFor(dist);
+  const grade = gradeFor(dist);
   emit(s, { type: 'log', kind: 'impact', drone: p.drone, value: dist });
   if (grade === 'MISS') {
-    o.status = 'missed';
-    s.score = Math.max(0, s.score - SCORE.missPenalty);
-    s.streak = 0;
-    s.stats.missed++;
-    emit(s, { type: 'popup', text: `${GRADE_LABEL.MISS} ${dist.toFixed(1)} m  -${SCORE.missPenalty}`, grade });
-    note(s, `${o.dest.name} 택배가 목표를 벗어났습니다`, 'bad');
-    sfx(s, 'miss');
+    if (p.floor > 0) p.lost = true;
+    missOrder(s, o, dist, `${o.dest.name} 택배가 목표를 벗어났습니다`);
     return;
   }
+  deliverOrder(s, o, grade, p.drone, { bonus: 0, label: '', dropSpeed: p.dropSpeed });
+}
+
+function missOrder(s: Sim, o: Order, dist: number, text: string) {
+  o.status = 'missed';
+  s.score = Math.max(0, s.score - SCORE.missPenalty);
+  s.streak = 0;
+  s.stats.missed++;
+  emit(s, { type: 'popup', text: `${GRADE_LABEL.MISS} ${dist.toFixed(1)} m  -${SCORE.missPenalty}`, grade: 'MISS' });
+  note(s, text, 'bad');
+  sfx(s, 'miss');
+}
+
+/** Scores a delivered order. `extra.bonus`: kind bonus (balcony), named `extra.label` in the popup. */
+function deliverOrder(s: Sim, o: Order, landed: Exclude<Grade, 'MISS'>, drone: number, extra: { bonus: number; label: string; dropSpeed: number }) {
+  let grade: Grade = landed;
+  const p = { dropSpeed: extra.dropSpeed };
   const cold = coldLeft(s, o);
   const warm = cold != null && cold < 0;
   const fragile = hasTag(o, 'fragile');
@@ -788,7 +908,7 @@ function landPackage(s: Sim, p: Package) {
   const coldBonus = cold != null && !warm ? SCORE.coldBonus : 0;
   const fragileBonus = fragile && !broken && !warm ? SCORE.fragileBonus : 0;
   const mult = broken || warm ? 1 : comboMult(s.streak);
-  const pts = Math.round((SCORE.base + precision + onTime + coldBonus + fragileBonus) * mult) - (broken ? SCORE.breakPenalty : 0);
+  const pts = Math.round((SCORE.base + precision + onTime + coldBonus + fragileBonus + extra.bonus) * mult) - (broken ? SCORE.breakPenalty : 0);
   s.score += pts;
   s.streak = broken || warm ? 0 : s.streak + 1;
   s.stats.bestStreak = Math.max(s.stats.bestStreak, s.streak);
@@ -804,13 +924,14 @@ function landPackage(s: Sim, p: Package) {
   if (onTime) parts.push('정시');
   if (coldBonus) parts.push('보냉');
   if (fragileBonus) parts.push('무사 도착');
+  if (extra.bonus) parts.push(extra.label);
   if (mult > 1) parts.push(`x${mult.toFixed(2)}`);
   emit(s, { type: 'popup', text: parts.join('  '), grade });
   if (broken) note(s, `${o.dest.name} 파손주의 화물 파손 — 투하 속도 ${p.dropSpeed.toFixed(1)} m/s (기준 ${SCORE.fragileMaxSpeed} m/s 이하, -${SCORE.breakPenalty})`, 'bad');
   if (warm) note(s, `${o.dest.name} 냉장 화물 온도 이탈 — 봉인 후 ${SCORE.coldLimit}초 초과`, 'bad');
   note(s, `${o.dest.name} 배송 완료: +${pts}`, broken || warm ? 'warn' : 'good');
   sfx(s, broken || warm ? 'miss' : grade === 'PERFECT' ? 'perfect' : 'good');
-  emit(s, { type: 'log', kind: 'delivered', drone: p.drone, value: pts });
+  emit(s, { type: 'log', kind: 'delivered', drone, value: pts });
 }
 
 function updateWind(s: Sim) {
@@ -945,8 +1066,11 @@ export function objective(s: Sim): Objective {
   };
   const att = s.drones.find(needsAttention);
   if (att) {
-    const step = att.fault === 'gps' ? 'fly' : att.state === 'hold' ? 'drop' : 'land';
-    const what = att.fault === 'gps' ? '[F 길게] GPS 재보정' : att.state === 'hold' ? '[Space] 목표 링에 투하' : '[Space] 패드에 착륙';
+    const step = att.fault === 'gps' ? 'fly' : att.state === 'hold' || att.state === 'winch' ? 'drop' : 'land';
+    const balcony = orderById(s, att.orderId)?.dest.kind === 'balcony';
+    const what = att.fault === 'gps' ? '[F 길게] GPS 재보정'
+      : att.state === 'winch' ? '[Space] 윈치로 거치대에 내려놓기'
+      : att.state === 'hold' ? (balcony ? '[Space 길게] 윈치로 거치대에 내려놓기' : '[Space] 목표 링에 투하') : '[Space] 패드에 착륙';
     if (carrying) {
       const next = putAway(step);
       return { ...next, text: `${next.text} → 콘솔에서 ${droneName(att.idx)} ${what}` };

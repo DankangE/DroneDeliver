@@ -41,7 +41,7 @@ function radarScreen() {
     DESTINATIONS.forEach((dest, i) => {
       const x = 169 + dest.x * 0.48, y = 169 + dest.z * 0.48;
       g.fillRect(x - 3, y - 3, 6, 6); g.fillText(dest.id, x + 7, y + 4);
-      g.fillText(dest.id + '  ' + dest.name, 352, 98 + 31 * i);
+      g.fillText(dest.id + '  ' + dest.name, 352, 98 + Math.min(31, 200 / DESTINATIONS.length) * i, 152);
     });
   });
   return new THREE.MeshStandardMaterial({ map, color: 0x52656b, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 1.55, roughness: 0.28 });
@@ -483,13 +483,15 @@ function deskScreen(telemetry: boolean) {
         g.stroke();
       }
     } else {
+      // Rows shrink to fit every stop above the 408 px canvas edge.
+      const row = Math.min(52, 318 / DESTINATIONS.length), k = row / 52;
       for (const [i, d] of DESTINATIONS.entries()) {
-        const y = 80 + i * 52;
-        g.fillStyle = i % 2 ? '#172d36' : '#203740'; g.fillRect(15, y, 642, 45);
-        g.fillStyle = new THREE.Color(d.color).getStyle(); g.fillRect(16, y, 5, 45);
-        g.fillStyle = '#d3e0dd'; g.font = `bold 25px ${KO_FONT}`; g.fillText(d.id, 38, y + 31);
-        g.font = `23px ${KO_FONT}`; g.fillText(d.name, 131, y + 31);
-        g.fillStyle = '#91b0b4'; g.fillText(Math.round(Math.hypot(d.x, d.z)) + ' m', 497, y + 31);
+        const y = 80 + i * row, base = y + 31 * k;
+        g.fillStyle = i % 2 ? '#172d36' : '#203740'; g.fillRect(15, y, 642, row - 7 * k);
+        g.fillStyle = new THREE.Color(d.color).getStyle(); g.fillRect(16, y, 5, row - 7 * k);
+        g.fillStyle = '#d3e0dd'; g.font = `bold ${Math.round(25 * k)}px ${KO_FONT}`; g.fillText(d.id, 38, base);
+        g.font = `${Math.round(23 * k)}px ${KO_FONT}`; g.fillText(d.name, 131, base);
+        g.fillStyle = '#91b0b4'; g.fillText(Math.round(Math.hypot(d.x, d.z)) + ' m', 497, base);
       }
     }
   });

@@ -31,6 +31,8 @@ export interface StageDef {
   faultChance: number;
   /** Fresh delivery: share of orders that carry at least one cold or fragile product. Unset = no cargo rules. */
   fresh?: { share: number };
+  /** Destination ids orders draw from. Unset = the six ground stops. */
+  destinations?: string[];
   briefing: string[];
 }
 
@@ -99,7 +101,32 @@ export const STAGES: StageDef[] = [
       '드론은 2대입니다. 바람과 고장은 러시아워보다 조금 약합니다.',
     ],
   },
+  {
+    id: 4,
+    name: '아파트 단지 — 옥상 · 베란다',
+    drones: 2,
+    target: 1650,
+    timeLimit: 360,
+    orderInterval: 34,
+    maxPending: 3,
+    orderDeadline: 160,
+    orderLines: [2, 3],
+    orderUnits: [3, 5],
+    windBase: 2.0,
+    faultChance: 0.2,
+    destinations: ['A1', 'D4', 'G7', 'H8', 'I9'],
+    briefing: [
+      '아파트 단지 배송이 열렸습니다. 지상 링 말고도 옥상 패드와 베란다 거치대로 배송합니다.',
+      '옥상(G7): 드론이 옥상 위 8 m에서 멈춥니다. 지금처럼 분홍 링을 옥상 패드에 맞춰 투하하세요.',
+      '베란다(H8 · I9): 투하할 수 없습니다. 콘솔에서 Space를 누르고 있으면 윈치 줄이 내려갑니다.',
+      '상자는 바람에 진자처럼 흔들립니다. 거치대 높이까지 내린 뒤 흔들림이 잦아들 때 Space를 떼면 내려놓습니다. 거치대에서 3 m를 넘게 벗어나면 상자가 떨어져 분실됩니다.',
+      '윈치를 쓰는 동안에도 정지 비행이라 배터리가 닳습니다.',
+    ],
+  },
 ];
+
+/** `ground`: ring on the ground. `roof`: pad on a tower roof. `balcony`: cradle on a facade, winch only. */
+export type DestinationKind = 'ground' | 'roof' | 'balcony';
 
 export interface Destination {
   id: string;
@@ -107,16 +134,26 @@ export interface Destination {
   x: number;
   z: number;
   color: number;
+  kind: DestinationKind;
+  /** Height of the delivery surface (ground 0, roof pad, cradle floor). */
+  y: number;
 }
 
 export const DESTINATIONS: Destination[] = [
-  { id: 'A1', name: '북문 의원', x: 40, z: -190, color: 0x4fc3f7 },
-  { id: 'B2', name: '항구 아파트', x: 185, z: -60, color: 0xffb74d },
-  { id: 'C3', name: '솔마루 농장', x: -175, z: -95, color: 0x81c784 },
-  { id: 'D4', name: '옛방앗간 카페', x: -150, z: 140, color: 0xe57373 },
-  { id: 'E5', name: '노을 테라스', x: 120, z: 160, color: 0xba68c8 },
-  { id: 'F6', name: '강변 초등학교', x: -40, z: 205, color: 0xfff176 },
+  { id: 'A1', name: '북문 의원', x: 40, z: -190, color: 0x4fc3f7, kind: 'ground', y: 0 },
+  { id: 'B2', name: '항구 아파트', x: 185, z: -60, color: 0xffb74d, kind: 'ground', y: 0 },
+  { id: 'C3', name: '솔마루 농장', x: -175, z: -95, color: 0x81c784, kind: 'ground', y: 0 },
+  { id: 'D4', name: '옛방앗간 카페', x: -150, z: 140, color: 0xe57373, kind: 'ground', y: 0 },
+  { id: 'E5', name: '노을 테라스', x: 120, z: 160, color: 0xba68c8, kind: 'ground', y: 0 },
+  { id: 'F6', name: '강변 초등학교', x: -40, z: 205, color: 0xfff176, kind: 'ground', y: 0 },
+  { id: 'G7', name: '한빛아파트 옥상', x: -205, z: 8, color: 0x4db6ac, kind: 'roof', y: 18 },
+  { id: 'H8', name: '한빛아파트 베란다', x: -156, z: 40, color: 0xf06292, kind: 'balcony', y: 9 },
+  { id: 'I9', name: '새솔빌라 베란다', x: 93, z: -105, color: 0x9ccc65, kind: 'balcony', y: 9 },
 ];
+
+const GROUND_STOPS = DESTINATIONS.filter(d => d.kind === 'ground').map(d => d.id);
+export const stageDestinations = (stage: StageDef) =>
+  DESTINATIONS.filter(d => (stage.destinations ?? GROUND_STOPS).includes(d.id));
 
 export const FLIGHT = {
   cruiseAlt: 30,
@@ -133,6 +170,21 @@ export const FLIGHT = {
   hardLandingOffset: 2.6,
   gpsFixTime: 2,
   repairTime: 2,
+  /** Hover height above a roof pad / balcony cradle. */
+  roofClearance: 8,
+  balconyClearance: 6,
+};
+
+/** Balcony winch: rope speeds and the hanging box's pendulum. */
+export const WINCH = {
+  lowerSpeed: 2.4,
+  reelSpeed: 4,
+  /** Drone steering speed while the box hangs (FLIGHT.nudgeSpeed is 6). */
+  nudgeSpeed: 2.5,
+  damping: 0.7,
+  windPush: 0.5,
+  /** Sway speed (box vs. drone) the HUD calls steady. */
+  steadySway: 0.6,
 };
 
 export const SCORE = {
@@ -149,6 +201,10 @@ export const SCORE = {
   fragileBonus: 30,
   fragileMaxSpeed: 1.2,
   breakPenalty: 30,
+  balconyBonus: 50,
+  balconyPerfect: 1,
+  balconyGood: 2,
+  balconyOk: 3,
   comboStep: 0.25,
   comboMax: 2,
   perfectRadius: 2,

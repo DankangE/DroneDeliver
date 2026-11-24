@@ -26,6 +26,10 @@
         <div class="stab-head"><span>안정도 · 파손주의 투하 기준 ≤ <span id="stab-limit-label"></span> m/s</span><span id="stab-value"></span></div>
         <div class="stab-track"><i id="stab-fill"></i><b id="stab-limit"></b></div>
       </div>
+      <div id="winch" class="hidden" role="group" aria-label="윈치">
+        <canvas id="winch-plot" width="96" height="96" aria-label="거치대 위 상자 위치"></canvas>
+        <div class="winch-info"><div id="winch-rope"></div><div class="stab-track"><i id="winch-fill"></i></div><div id="winch-sway"></div></div>
+      </div>
       <div id="console-action"><div id="action-label"></div><div id="action-reason"></div><div id="fix-bar"><div id="fix-fill"></div></div></div>
     </div>
   </div>
