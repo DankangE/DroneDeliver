@@ -281,12 +281,13 @@ const MERGED_NOTICE = '다른 기기에서 저장된 진행도를 불러와 합�
 // the newer server copy: merge, adopt its revision, retry once. A second conflict counts as a failed save.
 async function putProgress(): Promise<void> {
   clearTimeout(saveRetry);
-  if (!sdk || !user || lost || locked || rev === savedRev) return;
+  if (!sdk || !user || lost || locked || (rev === savedRev && !pending.length)) return;
   const sending = rev;
   try {
     await flushPlays();
     // Plays still waiting (offline / 5xx) are unproven: keep the save dirty and retry rather than store their scores.
     if (pending.length) throw err('network');
+    if (rev === savedRev) return; // only queued plays were outstanding and they are through
     const cur = await getProgress();
     stillOurs();
     const known = revision;
@@ -418,6 +419,11 @@ async function drain() {
       q.done(playError(x));
       if (x.code === 'stage_locked') void refreshProgress();
     }
+  }
+  if (locked && !lost) {
+    // Temporary: another tab owns the account. Keep the plays; take-over flushes them.
+    for (const p of pending) { p.done(['다른 탭에서 플레이 중이라 기록을 올리지 못했습니다.']); p.done = () => {}; }
+    return;
   }
   for (const p of pending.splice(0)) p.done(['기록을 올리지 못했습니다.']);
 }
