@@ -4,6 +4,7 @@ First-person drone delivery game. Browser only, runs locally. All player-facing 
 
 ## Stack
 - Three.js + Vite + TypeScript (strict). No backend, no API keys, no deploy config.
+- Optional nalidagame.online login / progress / leaderboard behind the build flag `VITE_NG_PLATFORM=1` (`src/platform.ts`, README "nalidagame.online"). Flag off must stay free of that code and of network calls: keep every call site behind `PLATFORM` so Vite folds it away. Nicknames and other API fields reach the DOM through `textContent` only.
 - Geometry, canvas textures and WebAudio sounds are procedural. Bundled files (HDRI, PBR textures) are CC0 only, in `public/assets/`, and credited in `public/assets/ASSETS.md`.
 
 ## Layout
@@ -14,6 +15,7 @@ First-person drone delivery game. Browser only, runs locally. All player-facing 
 - `src/hud.ts` — DOM HUD, console overlay, minimap.
 - `src/main.ts` — screens, input, loop, `?debug=1` hook (`window.__game`).
 - `scripts/playtest.mjs` — automated Chrome playtest (bot plays all four stages, triggers events, saves `docs/screenshots/`).
+- `src/platform.ts` — nalidagame.online gate, progress, plays and leaderboard (flag on only); `scripts/platform-e2e.mjs` checks it against a local NalidaGame API.
 
 ## Commands
 - `npm install`
@@ -21,6 +23,7 @@ First-person drone delivery game. Browser only, runs locally. All player-facing 
 - `npm run verify` — typecheck + production build (run before every PR)
 - `npm run build && npm run preview` — serve the built game (`PREVIEW_PORT` or `PORT`, default 4173)
 - `npm run playtest` — needs Google Chrome installed (or `CHROME_PATH`); `PLAYTEST_SPEED`, `PLAYTEST_ONLY=1|2|3|4`, `PLAYTEST_FULL=1`, `HEADED=1`, `PLAYTEST_GL=swiftshader`
+- `NG_API=http://localhost:8790 npm run e2e:platform` — flag-on end-to-end check; local API only (creates throwaway accounts)
 
 ## Rules
 - Tuning target: a normal base -> destination -> base round trip takes 30-40 s of game time. Re-measure with `npm run playtest` after changing `FLIGHT`, destinations or the drone state machine.

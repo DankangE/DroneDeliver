@@ -192,7 +192,7 @@ Fonts are system Korean fonts first (Apple SD Gothic Neo on macOS, Malgun Gothic
 - `src/config.ts` stages, destinations and every tuning number (flight speeds, battery drain, scoring).
 - `src/sim.ts` the whole game as plain state and a `step(sim, input, dt)` function.
 - `src/world.ts` Three.js scene that draws the sim state; `src/graphics/` holds the render pipeline, materials and models (see [Graphics](#graphics)). `src/hud.ts` DOM HUD, console overlay and minimap. `src/main.ts` screens, input and loop.
-- `scripts/playtest.mjs` automated playtest (see above).
+- `scripts/playtest.mjs` automated playtest (see above). `src/platform.ts` and `scripts/platform-e2e.mjs`: the nalidagame.online integration (see [below](#nalidagameonline-build-flag)).
 
 ### Debug hook
 
@@ -211,6 +211,33 @@ __game.log                   // timestamped game events (launch, drop, touchdown
 ```
 
 `&nolock=1` skips pointer lock (useful for automation).
+
+## nalidagame.online (build flag)
+
+The game can run as a [nalidagame.online](https://nalidagame.online) game: one portal account, saved stage progress and a leaderboard. It is a build-time flag and **off by default**: without it the build contains none of this code, makes no network requests and keeps every stage open, exactly as described above.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `VITE_NG_PLATFORM` | unset | `1` turns the integration on |
+| `VITE_NG_API` | `https://api.nalidagame.online` | NalidaGame API (the SDK is loaded from `<api>/sdk/nalidagame.js`) |
+| `VITE_NG_PORTAL` | `https://nalidagame.online` | portal login (`/login`) and nickname (`/nickname`) pages |
+
+With the flag on (`src/platform.ts`, game id `dronedeliver`):
+
+- **Login gate.** Nothing is playable without a portal session: the start screen is a 로그인이 필요합니다 card whose button opens the portal login with a return URL. An account without a nickname gets the 닉네임 설정 card. If the session expires or another account logs in from another tab, the next screen change shows the gate again (새로고침 for a switched account).
+- **Progress** `{ unlocked: 1..4, best: { "1": score, ... } }`, loaded at start. Stage 1 is always open; clearing stage N opens N+1, and locked stages show 잠김 on the title. After each shift the whole copy is saved; if the server holds a newer copy (409 conflict) the two are merged (highest `unlocked`, best score per stage) and saved once more. An unreachable server is retried in the background.
+- **Plays.** Every finished shift, cleared or failed, is posted as `{ stage, score, cleared, durationSec, detail: { delivered, perfect, good, missed, expired, crashes } }`. The result screen shows the rank, or a Korean note when the play was not recorded (no nickname, with a button to the portal nickname page; too many plays; rejected score; offline).
+- **Leaderboard** (랭킹 on the title and result screens): top 20 by best score with rank, nickname, score and stage, plus the player's own row. Fields are coerced to integers and nicknames are rendered as text only.
+
+```bash
+VITE_NG_PLATFORM=1 npm run dev                                       # against production nalidagame.online
+VITE_NG_PLATFORM=1 VITE_NG_API=http://localhost:8790 npm run dev     # against a local NalidaGame API
+NG_API=http://localhost:8790 npm run e2e:platform                    # headless end-to-end check against a LOCAL API
+```
+
+`npm run e2e:platform` builds with the flag on, signs up a throwaway account on the given local API (it refuses any non-localhost API), and checks the gate, the stage 1 clear (progress and play), the conflict merge, play errors, the leaderboard and that leaderboard fields cannot inject markup. Start the API with `ALLOW_LAN_ORIGINS=1 COOKIE_SECURE=0` and no `COOKIE_DOMAIN` (NalidaGame README, Local development).
+
+Production build for dronedeliver.nalidagame.online: `vercel deploy --prod --build-env VITE_NG_PLATFORM=1`.
 
 ## Assets and licences
 

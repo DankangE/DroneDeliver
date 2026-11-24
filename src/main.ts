@@ -6,6 +6,7 @@ import { handleEvent, resetHud, updateHud } from './hud';
 import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
 import { consolePrimary, createSim, disarmWinch, hangingY, interact, leaveConsole, needsAttention, orderById, predictImpact, ropeMax, swaySpeed, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
 import { World } from './world';
+import { PLATFORM, bootPlatform, nickname, openNicknamePage, recordShift, sessionOk, shiftStatus, showLeaderboard, stageUnlocked } from './platform';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const hudEl = document.getElementById('hud')!;
@@ -74,14 +75,35 @@ function mountQualityMenu() {
   syncQualityMenu();
 }
 
+// Flag on: stages past the player's progress stay locked (stage 1 is always open).
+const stageButton = (n: number) => (PLATFORM && !stageUnlocked(n)
+  ? `<button id="b-s${n}" disabled>스테이지 ${n} 잠김</button>`
+  : `<button id="b-s${n}">스테이지 ${n} 바로 가기</button>`);
+
+// Flag on: once the session is gone, show the login gate and stop any shift behind it.
+function sessionLost() {
+  if (sessionOk()) return false;
+  onTitle = true;
+  paused = false;
+  hudEl.classList.add('hidden');
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (sim.phase === 'playing') sim = createSim(sim.stage.id);
+  return true;
+}
+
 function showTitle() {
+  if (PLATFORM && sessionLost()) return;
   onTitle = true;
   hudEl.classList.add('hidden');
   showCard(`<div class="logo">하늘길 택배</div>
     <h1>드론 배송 관제사</h1>
     <p>라면 두 개와 생수 한 병을 주문한 이웃이 기다립니다. 선반에서 주문 상품을 꺼내 포장대에 담고, 수량을 확인해 상자를 봉인하세요. 드론에 연결한 뒤 콘솔에서 출발과 투하, 귀환 착륙을 맡으세요.</p>
     ${CONTROLS}
-    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button><button id="b-s3">스테이지 3 바로 가기</button><button id="b-s4">스테이지 4 바로 가기</button></div>`);
+    <div class="btns"><button class="primary" id="b-start">근무 시작</button>${stageButton(2)}${stageButton(3)}${stageButton(4)}${PLATFORM ? '<button id="b-board">랭킹</button>' : ''}</div>${PLATFORM ? '<p class="ng-user">nalidagame.online · <b id="ng-nick"></b> 님으로 플레이 중</p>' : ''}`);
+  if (PLATFORM) {
+    document.getElementById('ng-nick')!.textContent = nickname();
+    bind('b-board', () => showLeaderboard(showTitle));
+  }
   mountQualityMenu();
   bind('b-start', () => showBriefing(1));
   bind('b-s2', () => showBriefing(2));
@@ -90,6 +112,10 @@ function showTitle() {
 }
 
 function showBriefing(stageId: number) {
+  if (PLATFORM) {
+    if (sessionLost()) return;
+    if (!stageUnlocked(stageId)) { showTitle(); return; }
+  }
   onTitle = false;
   sim = createSim(stageId);
   log.push({ type: 'log', kind: 'stage-start', value: stageId, t: 0, stage: stageId });
@@ -109,6 +135,7 @@ function showBriefing(stageId: number) {
 }
 
 function begin() {
+  if (PLATFORM && sessionLost()) return;
   hideCard();
   startPlaying(sim);
   paused = false;
@@ -141,28 +168,54 @@ function showResult() {
     <span>최고 콤보</span><span>${s.stats.bestStreak}</span>
     <span>평균 왕복 시간</span><span>${avgTrip}</span>
     ${won ? `<span>등급</span><span>${rank(s)}</span>` : ''}
-  </div>`;
+  </div>${PLATFORM ? '<p class="ng-status" id="ng-status" role="status"></p>' : ''}`;
+  const platformBtns = PLATFORM ? '<button id="b-board">랭킹</button><button id="b-nick" hidden>닉네임 설정</button>' : '';
   if (won) {
     showCard(`<h2>스테이지 ${s.stage.id} 클리어</h2><h1>${last ? '모든 근무 완료' : '목표 달성'}</h1>${stats}
-      <div class="btns">${last ? '' : '<button class="primary" id="b-next">다음 스테이지</button>'}<button id="b-retry">다시 하기</button><button id="b-title">타이틀</button></div>`, 'result-good');
+      <div class="btns">${last ? '' : '<button class="primary" id="b-next">다음 스테이지</button>'}<button id="b-retry">다시 하기</button><button id="b-title">타이틀</button>${platformBtns}</div>`, 'result-good');
     bind('b-next', () => showBriefing(s.stage.id + 1));
   } else {
     showCard(`<h2>스테이지 ${s.stage.id} 실패</h2><h1>근무 종료</h1><p>목표 점수에 닿기 전에 근무 시간이 끝났습니다.</p>${stats}
-      <div class="btns"><button class="primary" id="b-retry">다시 도전</button><button id="b-title">타이틀</button></div>`, 'result-bad');
+      <div class="btns"><button class="primary" id="b-retry">다시 도전</button><button id="b-title">타이틀</button>${platformBtns}</div>`, 'result-bad');
   }
   bind('b-retry', () => showBriefing(s.stage.id));
   bind('b-title', showTitle);
+  if (PLATFORM) {
+    bind('b-board', () => showLeaderboard(showResult));
+    bind('b-nick', openNicknamePage);
+    syncShiftStatus();
+  }
+}
+
+function syncShiftStatus() {
+  const el = document.getElementById('ng-status');
+  if (!el) return;
+  el.textContent = shiftStatus.text;
+  document.getElementById('b-nick')!.hidden = !shiftStatus.nicknameButton;
+}
+if (PLATFORM) shiftStatus.onChange = syncShiftStatus;
+
+function finishShift() {
+  if (PLATFORM) {
+    const st = sim.stats;
+    recordShift({
+      stage: sim.stage.id, score: sim.score, cleared: sim.phase === 'clear', durationSec: sim.time,
+      detail: { delivered: st.delivered, perfect: st.perfect, good: st.good, missed: st.missed, expired: st.expired, crashes: st.crashes },
+    });
+  }
+  showResult();
 }
 
 function setPaused(p: boolean) {
   if (sim.phase !== 'playing' || paused === p) return;
+  if (PLATFORM && !p && sessionLost()) return;
   paused = p;
   disarmWinch(sim);
   if (p) {
     if (document.pointerLockElement) document.exitPointerLock();
     showCard(`<h2>일시 정지</h2><h1>잠시 휴식</h1>${CONTROLS}<div class="btns"><button class="primary" id="b-resume">계속하기</button><button id="b-retry">스테이지 재시작</button><button id="b-title">타이틀</button></div>`);
     mountQualityMenu();
-    bind('b-resume', () => { setPaused(false); lockPointer(); });
+    bind('b-resume', () => { setPaused(false); if (!PLATFORM || sim.phase === 'playing') lockPointer(); });
     bind('b-retry', () => { paused = false; showBriefing(sim.stage.id); });
     bind('b-title', () => { paused = false; showTitle(); });
   } else hideCard();
@@ -202,7 +255,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (menuOpen && !paused) return;
   if (e.code === 'Escape') { setPaused(true); return; }
-  if (e.code === 'KeyP') { setPaused(!paused); if (!paused) lockPointer(); return; }
+  if (e.code === 'KeyP') { setPaused(!paused); if (!paused && (!PLATFORM || sim.phase === 'playing')) lockPointer(); return; }
   if (e.code === 'KeyM') { toggleMute(); return; }
   if (paused || sim.phase !== 'playing') return;
   if (sim.player.mode === 'walk') {
@@ -257,7 +310,7 @@ function frame(now: number) {
     sim.events.length = 0;
     pingTimer -= realDt;
     if (pingTimer <= 0 && sim.drones.some(needsAttention)) { play('ping'); pingTimer = 3.5; }
-    if (sim.phase !== 'playing') showResult();
+    if (sim.phase !== 'playing') finishShift();
   }
   const flying = sim.drones.filter((d) => d.state !== 'pad' && d.state !== 'down');
   const near = sim.player.mode === 'console' ? (flying.includes(sim.drones[sim.selected]) ? 1 : 0.2) : flying.reduce((a, d) => a + Math.max(0, 1 - Math.hypot(d.pos.x - sim.player.x, d.pos.y - 1.6, d.pos.z - sim.player.z) / 40), 0);
@@ -269,7 +322,8 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 
-showTitle();
+if (PLATFORM) bootPlatform({ show: (html, extraClass) => { showCard(html, extraClass); return card; }, bind }, showTitle);
+else showTitle();
 requestAnimationFrame(frame);
 
 // ------------------------------------------------------------ debug hook (?debug=1)
