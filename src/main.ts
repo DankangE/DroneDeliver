@@ -4,7 +4,7 @@ import { BASE, PRODUCTS, SCORE, STAGES } from './config';
 import { initAudio, play, setHum, toggleMute } from './audio';
 import { handleEvent, resetHud, updateHud } from './hud';
 import { QUALITY_LABEL, QUALITY_SETTINGS } from './graphics/quality';
-import { consolePrimary, createSim, interact, leaveConsole, needsAttention, orderById, predictImpact, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
+import { consolePrimary, createSim, hangingY, interact, leaveConsole, needsAttention, orderById, predictImpact, ropeMax, swaySpeed, selectDrone, startPlaying, step, type Input, type Sim, type SimEvent, type Target } from './sim';
 import { World } from './world';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -39,7 +39,7 @@ const CONTROLS = `<div class="ctrl">
   <kbd>W A S D</kbd><span>기지 안 이동 · 콘솔에서는 드론 조종</span>
   <kbd>마우스</kbd><span>둘러보기 (화면을 클릭하면 마우스 고정, ← →로도 회전)</span>
   <kbd>E</kbd><span>꺼내기 · 담기 · 포장 확인 · 봉인 · 드론 연결 · 콘솔 앉기<br>배터리 교체 · 길게 눌러 로터 수리</span>
-  <kbd>Space</kbd><span>콘솔에서 출발 · 택배 투하 · 착륙 시작</span>
+  <kbd>Space</kbd><span>콘솔에서 출발 · 택배 투하 · 착륙 시작 · 베란다 윈치(길게)</span>
   <kbd>F</kbd><span>콘솔에서 길게 눌러 GPS 재보정</span>
   <kbd>1 2 Tab</kbd><span>드론 화면 전환</span>
   <kbd>Q</kbd><span>착륙 후 콘솔에서 나가기</span>
@@ -81,11 +81,12 @@ function showTitle() {
     <h1>드론 배송 관제사</h1>
     <p>라면 두 개와 생수 한 병을 주문한 이웃이 기다립니다. 선반에서 주문 상품을 꺼내 포장대에 담고, 수량을 확인해 상자를 봉인하세요. 드론에 연결한 뒤 콘솔에서 출발과 투하, 귀환 착륙을 맡으세요.</p>
     ${CONTROLS}
-    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button><button id="b-s3">스테이지 3 바로 가기</button></div>`);
+    <div class="btns"><button class="primary" id="b-start">근무 시작</button><button id="b-s2">스테이지 2 바로 가기</button><button id="b-s3">스테이지 3 바로 가기</button><button id="b-s4">스테이지 4 바로 가기</button></div>`);
   mountQualityMenu();
   bind('b-start', () => showBriefing(1));
   bind('b-s2', () => showBriefing(2));
   bind('b-s3', () => showBriefing(3));
+  bind('b-s4', () => showBriefing(4));
 }
 
 function showBriefing(stageId: number) {
@@ -101,6 +102,7 @@ function showBriefing(stageId: number) {
     <div class="goal"><div><b>${st.target}</b><span>목표 점수</span></div><div><b>${Math.floor(st.timeLimit / 60)}:00</b><span>근무 시간</span></div><div><b>${st.drones}</b><span>드론 대수</span></div></div>
     <p>배송 1건 100점, 완벽 투하 +60, 우수 +25, 정시 +30. 연속 배송은 최대 x2까지 콤보가 쌓입니다. 포장 확인 때 잘못 담거나 부족한 수량 하나당 ${SCORE.packErrorPenalty}점이 깎입니다. 투하 실패와 기한 초과도 감점입니다.</p>
     ${st.fresh ? `<p>냉장: 아이스팩이 빠지면 포장 오류 -${SCORE.packErrorPenalty}, 봉인 후 ${SCORE.coldLimit}초 안에 도착하면 +${SCORE.coldBonus}, 넘기면 온도 이탈(기본 100점만, 콤보 끊김). 파손주의: 수평 속도 ${SCORE.fragileMaxSpeed} m/s 이하로 투하하면 +${SCORE.fragileBonus}, 넘기면 파손(최대 양호, -${SCORE.breakPenalty}, 콤보 끊김).</p>` : ''}
+    ${st.id === 4 ? `<p>옥상: 옥상 위 8 m에서 투하하고 패드 링으로 채점합니다. 빗나가면 상자가 길로 떨어집니다(-${SCORE.missPenalty}). 베란다: 투하 금지. Space를 누르고 있으면 줄이 내려가고, 거치대 높이에서 떼면 내려놓습니다. 거치대 중심에서 ${SCORE.balconyPerfect} m 안 완벽, ${SCORE.balconyGood} m 안 우수, ${SCORE.balconyOk} m 안 보통이고 성공하면 +${SCORE.balconyBonus}. 그보다 멀면 상자를 잃습니다(-${SCORE.missPenalty}). 드론 조종(WASD)으로 흔들리는 상자를 거치대 위로 옮기세요.</p>` : ''}
     <div class="btns"><button class="primary" id="b-go">근무 시작</button><button id="b-title">타이틀</button></div>`);
   bind('b-go', begin);
   bind('b-title', showTitle);
@@ -135,6 +137,7 @@ function showResult() {
     <span>고장 수리 · 배터리 교체</span><span>${s.stats.faultsFixed} · ${s.stats.swaps}</span>
     ${s.stage.fresh ? `<span>보냉 성공 · 온도 이탈</span><span>${s.stats.coldKept} · ${s.stats.coldWarm}</span>
     <span>파손주의 무사 · 파손</span><span>${s.stats.fragileSafe} · ${s.stats.broken}</span>` : ''}
+    ${s.stage.id === 4 ? `<span>베란다 성공 · 분실</span><span>${s.stats.balcony} · ${s.stats.balconyLost}</span>` : ''}
     <span>최고 콤보</span><span>${s.stats.bestStreak}</span>
     <span>평균 왕복 시간</span><span>${avgTrip}</span>
     ${won ? `<span>등급</span><span>${rank(s)}</span>` : ''}
@@ -224,6 +227,7 @@ function readInput(dt: number): Input {
     nudge: { x: ax, z: az },
     interactHeld: keys.has('KeyE'),
     fixHeld: keys.has('KeyF'),
+    winchHeld: keys.has('Space'),
   };
 }
 
@@ -316,9 +320,14 @@ if (debug) {
     aim() {
       const d = sim.drones[sim.selected];
       const pad = BASE.pads[d.idx];
+      if (d.state === 'winch') {
+        const o = orderById(sim, d.orderId)!;
+        return { x: o.dest.x - d.bob.x, z: o.dest.z - d.bob.z, hook: { x: +(o.dest.x - d.pos.x).toFixed(2), z: +(o.dest.z - d.pos.z).toFixed(2) }, rope: +d.rope.toFixed(2), ropeMax: +ropeMax(d, o.dest).toFixed(2), sway: +swaySpeed(d).toFixed(2), boxY: +hangingY(d).toFixed(2) };
+      }
       if (d.state === 'hold') {
         const o = orderById(sim, d.orderId)!;
-        const p = predictImpact(sim, d.pos, d.vel);
+        if (o.dest.kind === 'balcony') return { x: o.dest.x - d.pos.x, z: o.dest.z - d.pos.z };
+        const p = predictImpact(sim, d.pos, d.vel, o.dest.y);
         return { x: o.dest.x - p.x, z: o.dest.z - p.z };
       }
       return { x: pad.x - d.pos.x, z: pad.z - d.pos.z };
@@ -327,7 +336,7 @@ if (debug) {
       return {
         phase: sim.phase, stage: sim.stage.id, time: +sim.time.toFixed(2), score: sim.score, mode: sim.player.mode, carrying: sim.player.carrying, box: sim.box, target: sim.target, targetScore: sim.stage.target,
         drones: sim.drones.map((d) => ({ idx: d.idx, state: d.state, fault: d.fault, battery: +d.battery.toFixed(1), orderId: d.orderId, pos: { x: +d.pos.x.toFixed(1), y: +d.pos.y.toFixed(1), z: +d.pos.z.toFixed(1) }, hspeed: +Math.hypot(d.vel.x, d.vel.z).toFixed(2) })),
-        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, status: o.status, items: o.items, tags: o.tags, sealedAt: o.sealedAt, deadline: o.deadline })),
+        orders: sim.orders.map((o) => ({ id: o.id, dest: o.dest.id, kind: o.dest.kind, status: o.status, items: o.items, tags: o.tags, sealedAt: o.sealedAt, deadline: o.deadline })),
         stats: sim.stats,
       };
     },

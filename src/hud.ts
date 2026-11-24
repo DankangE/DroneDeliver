@@ -1,5 +1,5 @@
-import { BASE, DESTINATIONS, FLIGHT, SCORE, TAG_LABEL, productById } from './config';
-import { coldLeft, comboMult, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, orderText, packedQty, predictImpact, promptFor, stateLabel, type Drone, type LoopStep, type Order, type Sim, type SimEvent } from './sim';
+import { BASE, FLIGHT, SCORE, TAG_LABEL, WINCH, productById, stageDestinations } from './config';
+import { balconyGrade, coldLeft, comboMult, hangingY, ropeMax, swaySpeed, consoleAction, droneName, GRADE_LABEL, gradeFor, needsAttention, objective, orderById, orderText, packedQty, predictImpact, promptFor, stateLabel, type Drone, type LoopStep, type Order, type Sim, type SimEvent } from './sim';
 
 const DRONE_CSS = ['#ff8a3d', '#3dd6ff'];
 const DELIVERY_STEPS = [
@@ -246,8 +246,17 @@ function updateConsole(s: Sim) {
   cls('fix-bar', 'hidden', !gps);
   ($('fix-fill') as HTMLElement).style.width = `${Math.min(100, (d.fixProgress / FLIGHT.gpsFixTime) * 100)}%`;
   let guide = '';
-  if (d.state === 'hold' && dest) {
-    const p = predictImpact(s, d.pos, d.vel);
+  if (d.state === 'winch' && dest) {
+    const off = Math.hypot(d.bob.x - dest.x, d.bob.z - dest.z);
+    const bottom = d.rope >= ropeMax(d, dest) - 0.05;
+    guide = bottom
+      ? `거치대 높이 도착. 상자 오차 ${off.toFixed(1)} m → ${GRADE_LABEL[balconyGrade(off)]}<br>흔들림이 잦아들 때 Space를 떼세요 (${SCORE.balconyOk} m 넘으면 분실).`
+      : `Space를 누르고 있으면 줄이 내려갑니다. WASD로 상자를 거치대 위로.<br>상자 오차 ${off.toFixed(1)} m`;
+  } else if (d.state === 'hold' && dest?.kind === 'balcony') {
+    const off = Math.hypot(d.pos.x - dest.x, d.pos.z - dest.z);
+    guide = `베란다는 투하 금지. 드론을 거치대 위로 맞추고 Space를 길게 누르세요.<br>거치대 오차 ${off.toFixed(1)} m`;
+  } else if (d.state === 'hold' && dest) {
+    const p = predictImpact(s, d.pos, d.vel, dest.y);
     const off = Math.hypot(p.x - dest.x, p.z - dest.z);
     guide = `분홍 링 = 예상 낙하 지점. 목표 위로 맞춘 뒤 투하하세요.<br>오차 ${off.toFixed(1)} m → ${GRADE_LABEL[gradeFor(off)]}  (완벽 ≤ ${SCORE.perfectRadius} m)`;
   } else if (d.state === 'approach') {
@@ -267,7 +276,36 @@ function updateConsole(s: Sim) {
     ($('stab-fill') as HTMLElement).style.width = `${Math.min(100, (speed / STAB_SCALE) * 100)}%`;
     ($('stab-limit') as HTMLElement).style.left = `${(SCORE.fragileMaxSpeed / STAB_SCALE) * 100}%`;
   }
+  updateWinch(s, d);
   drawMinimap(s);
+}
+
+/** Rope length, sway speed and a top-down plot of the box over the cradle rings while winching. */
+function updateWinch(s: Sim, d: Drone) {
+  const dest = orderById(s, d.orderId)?.dest;
+  const on = d.state === 'winch' && !!dest;
+  cls('winch', 'hidden', !on);
+  if (!on || !dest) return;
+  const max = ropeMax(d, dest), sway = swaySpeed(d);
+  const steady = sway <= WINCH.steadySway;
+  text('winch-rope', `줄 ${d.rope.toFixed(1)} / ${max.toFixed(1)} m · 상자 높이 ${(hangingY(d) - 0.35).toFixed(1)} m`);
+  text('winch-sway', `흔들림 ${sway.toFixed(1)} m/s ${steady ? '안정' : '흔들림'}`);
+  cls('winch', 'steady', steady);
+  ($('winch-fill') as HTMLElement).style.width = `${Math.min(100, max > 0 ? d.rope / max * 100 : 0)}%`;
+  const c = $('winch-plot') as HTMLCanvasElement;
+  const g = c.getContext('2d')!;
+  const W = c.width, k = W / 8;
+  g.clearRect(0, 0, W, W);
+  for (const [r, color] of [[SCORE.balconyOk, '#ffffff66'], [SCORE.balconyGood, hex(dest.color)], [SCORE.balconyPerfect, '#ffffffaa']] as const) {
+    g.strokeStyle = color; g.lineWidth = 2;
+    g.beginPath(); g.arc(W / 2, W / 2, r * k, 0, Math.PI * 2); g.stroke();
+  }
+  const dx = Math.max(-4, Math.min(4, d.bob.x - dest.x)), dz = Math.max(-4, Math.min(4, d.bob.z - dest.z));
+  g.fillStyle = '#ff3df0';
+  g.fillRect(W / 2 + dx * k - 5, W / 2 + dz * k - 5, 10, 10);
+  g.strokeStyle = '#ffd23f'; g.lineWidth = 1.5;
+  const hx = W / 2 + (d.pos.x - dest.x) * k, hz = W / 2 + (d.pos.z - dest.z) * k;
+  g.beginPath(); g.moveTo(hx - 6, hz); g.lineTo(hx + 6, hz); g.moveTo(hx, hz - 6); g.lineTo(hx, hz + 6); g.stroke();
 }
 
 function drawMinimap(s: Sim) {
@@ -281,7 +319,7 @@ function drawMinimap(s: Sim) {
   g.strokeStyle = 'rgba(160,200,230,0.12)';
   for (let r = 50; r < 260; r += 50) { g.beginPath(); g.arc(W / 2, W / 2, r * scale, 0, Math.PI * 2); g.stroke(); }
   const busy = new Set(s.orders.filter((o) => ['waiting', 'carried', 'loaded', 'flying'].includes(o.status)).map((o) => o.dest.id));
-  for (const d of DESTINATIONS) {
+  for (const d of stageDestinations(s.stage)) {
     g.fillStyle = hex(d.color);
     g.globalAlpha = busy.has(d.id) ? 1 : 0.35;
     g.beginPath(); g.arc(X(d.x), Z(d.z), 5, 0, Math.PI * 2); g.fill();

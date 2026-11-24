@@ -61,6 +61,7 @@ A normal round trip (takeoff, cruise, drop, return, landing) takes **30–40 s o
 | 1 · 주간 근무 (Day Shift) | 1 | 620 pts | 6:00 | Light wind, orders every ~52 s, 2:45 per order. The second flight always has a GPS fault so you learn the fix. |
 | 2 · 러시아워 (Rush Hour) | 2 (fly at the same time) | 1460 pts | 6:00 | Pad 2 opens. Stronger wind, orders every ~30 s, 2:30 per order, more faults. |
 | 3 · 신선 배송 (Fresh Delivery) | 2 | 1600 pts | 6:00 | About 60 % of orders carry a tag. **냉장 (cold)**: lettuce or milk; take an ice pack from the 냉동고 (freezer) into the box before the check, and the 90 s cold timer starts when you seal. **파손주의 (fragile)**: eggs; the drone must be moving at 1.2 m/s or less when you drop (stability gauge on the console). Orders every ~34 s, 2:40 per order, bigger orders. |
+| 4 · 아파트 단지 (Apartment Complex) | 2 | 1650 pts | 6:00 | Orders also go to an apartment roof and two balconies (stops A1, D4, G7, H8, I9). **옥상 (roof, G7)**: the drone holds 8 m above the 18 m roof and you drop as usual, graded on the roof rings; a miss falls past the roof to the street. **베란다 (balcony, H8 · I9)**: no dropping. Hold `Space` to pay out the winch rope, steer the swinging box over the cradle with `WASD` (slower while it hangs), and let go of `Space` at cradle height. Orders every ~34 s, 2:40 per order. |
 
 Reach the target before the shift timer runs out to clear the stage; run out of time and the stage fails (retry from the result screen). Each stage starts with a briefing and ends with a result screen (score, deliveries, drop grades, faults fixed, battery swaps, best combo, average round trip, rank).
 
@@ -69,6 +70,7 @@ Reach the target before the shift timer runs out to clear the stage; run out of 
 - 100 per delivery, +60 완벽, +25 우수, +30 정시 (on time) (dropped within the first 75 % of the order window).
 - Combo: each consecutive delivery adds x0.25, up to x2. A miss, an expired order or a crash resets it.
 - Missed drop -20, expired order -40, crash -60.
+- Stage 4: a balcony release within 1 m of the cradle centre is 완벽, within 2 m 우수, within 3 m 보통, each +50 on top; farther out the box falls and is lost (-20, combo reset). The winch console shows rope length, sway speed and a top-down plot of the box over the cradle rings. Winching is hovering, so it drains the battery at the hover rate.
 - Stage 3: cold order delivered within 90 s of sealing +40, fragile order dropped at 1.2 m/s or less +30. A warm cold order loses the precision, on-time and cold bonuses; a broken fragile order is capped at 양호 and costs -30. Both reset the combo. A cold box without an ice pack counts as one pack-check error (-10).
 
 ## Gameplay additions from playtesting
@@ -101,7 +103,8 @@ The first playable build was only the brief's loop: load, launch, drop, land. Af
 - It steers drops and landings using the `?debug=1` hook to read the aim error.
 - It forces a battery-low event (Stage 1) and a rotor fault (Stage 2), and handles the GPS faults that occur.
 - On Stage 3 it packs an ice pack into every cold box and, for fragile orders, lets the drone settle below 0.95 m/s before it drops.
-- It plays all three stages to the end, runs the shift clock out once to check the lose condition, and checks the phone-width notice.
+- On Stage 4 it drops on the roof pad like a ground ring. At a balcony it lines up over the cradle, holds Space, keeps the hook upwind of the cradle by the box's average wind offset, and lets go at cradle height once the box is within 0.7 m and swinging under 0.6 m/s (or later with looser limits).
+- It plays all four stages to the end, runs the shift clock out once to check the lose condition, and checks the phone-width notice.
 
 Each stage's first trip runs at real speed. After that the bot runs game time at x3 (`PLAYTEST_SPEED`), so these times are game seconds.
 
@@ -121,6 +124,8 @@ Last runs in headless Chrome 1280x720 (2026-11-23), all values in game seconds:
 Runs A–D (before the realism pass) measured 16 round trips from **31.0 to 38.1 s**, with a mean of 34.3 s, inside the 30–40 s target. A clean trip with no events takes 31–34 s. Trips with a GPS fault, or a longer steer onto the target, take 35–38 s. Runs E–H use the realism renderer; the game rules are unchanged. The one outlier, 45.6 s in run E, had a GPS fault and a random rotor fault on the same flight; the other 19 trips ran 31.7–38.0 s.
 
 Stage 3 run (2026-11-24, all three stages in one run): Stage 1 clear 713/620 in 112.3 s (trips 32.9, 36.9), Stage 2 clear 1806/1460 in 174.5 s (trips 34.5, 37.5, 32.3, 35.3, 35.9), Stage 3 clear 1763/1600 in 160.9 s (trips 32.9, 34.8, 33.9, 34.1). The fragile drops left at 0.1–0.9 m/s; no order went warm.
+
+Stage 4 runs (2026-11-24). Full four-stage run: Stage 1 clear 713/620 (trips 31.9, 37.2), Stage 2 clear 1806/1460, Stage 3 clear 1688/1600, Stage 4 clear 1806/1650 in 179.8 s (trips 33.4, 37.5, 37.2, 36.3, 38.2; that run drew no balcony order). `PLAYTEST_ONLY=4 PLAYTEST_FULL=1` runs, which play the whole 6:00: round trips D4 31.9–35.3 s, A1 34.1–35.6 s, G7 (roof) 33.5–39.4 s, H8 and I9 (balcony) 35.1–40.3 s, so the winch keeps balcony trips at the top of the 30–40 s band. Winch releases landed 0.2–1.0 m from the cradle centre. The bot scored 1893–2043 at its 6th delivery and 3613–3763 at the end, so the target is 1650 (about 84% of the 6th-delivery average).
 
 How the Stage 3 target was set: with `PLAYTEST_FULL=1` the bot plays the whole shift. Stage 2 reaches 1806 on its 6th delivery (the 1460 target is 81 % of that) and 3706–4086 by the end. Stage 3 reaches 1936 on its 6th delivery and 4116–4241 by the end, so 1600 (83 % of 1936) asks for the same number of deliveries as Stage 2. Order sizes are random, so the score at the clearing delivery varies between runs.
 
@@ -151,8 +156,10 @@ Screenshots (`docs/screenshots/`):
 | ![Stage 2 briefing](docs/screenshots/09-briefing-stage2.png) | ![Phone-width notice](docs/screenshots/14-phone-notice.png) |
 | ![Stage 3 ice pack](docs/screenshots/16-stage3-ice-pack.png) | ![Stage 3 stability gauge](docs/screenshots/17-stage3-stability-gauge.png) |
 | ![Stage 3 briefing](docs/screenshots/16a-briefing-stage3.png) | ![Stage 3 clear](docs/screenshots/18-stage3-clear.png) |
+| ![Stage 4 briefing](docs/screenshots/19a-briefing-stage4.png) | ![Stage 4 roof drop](docs/screenshots/19b-stage4-roof-drop.png) |
+| ![Stage 4 balcony winch](docs/screenshots/19c-stage4-winch.png) | ![Stage 4 clear](docs/screenshots/20-stage4-clear.png) |
 
-Options: `CHROME_PATH=/path/to/chrome`, `PLAYTEST_SPEED=1` (all real time), `PLAYTEST_ONLY=1|2|3`, `PLAYTEST_FULL=1` (ignore the target and play the whole shift to measure the bot score), `HEADED=1`, `PLAYTEST_GL=swiftshader` (software rendering instead of the default Metal GPU backend).
+Options: `CHROME_PATH=/path/to/chrome`, `PLAYTEST_SPEED=1` (all real time), `PLAYTEST_ONLY=1|2|3|4`, `PLAYTEST_FULL=1` (ignore the target and play the whole shift to measure the bot score), `HEADED=1`, `PLAYTEST_GL=swiftshader` (software rendering instead of the default Metal GPU backend).
 
 ## Graphics
 

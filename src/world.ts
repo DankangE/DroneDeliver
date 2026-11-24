@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { BASE, FLIGHT } from './config';
-import { needsAttention, objective, predictImpact, type Drone, type Sim } from './sim';
+import { BASE, DESTINATIONS, FLIGHT, stageDestinations } from './config';
+import { hangingY, needsAttention, objective, orderById, predictImpact, type Drone, type Sim } from './sim';
 import { buildDepot } from './graphics/depot';
 import { buildDestinations } from './graphics/destinations';
 import { batteryPack, droneModel, type DroneMesh } from './graphics/drone';
@@ -33,6 +33,8 @@ export class World {
   private marker: THREE.Mesh;
   private impact: THREE.Mesh;
   private padOffline: THREE.Mesh;
+  /** One winch rope segment per drone, hub to box lid. */
+  private ropes: THREE.LineSegments;
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camInit = false;
@@ -89,6 +91,10 @@ export class World {
     this.padOffline.position.set(BASE.pads[1].x, 0.108, BASE.pads[1].z);
     this.padOffline.renderOrder = 1;
     marks.add(this.padOffline);
+    this.ropes = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x1d1f22 }));
+    this.ropes.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * 3 * 4), 3));
+    this.ropes.frustumCulled = false;
+    this.scene.add(this.ropes);
     this.terrain.setQuality(settings);
     this.pipeline.prepare(this.scene);
   }
@@ -165,14 +171,19 @@ export class World {
     }
 
     const sel = s.drones[s.selected];
-    const showImpact = s.player.mode === 'console' && sel && sel.state === 'hold';
+    const selOrder = sel ? orderById(s, sel.orderId) : undefined;
+    const showImpact = s.player.mode === 'console' && sel && selOrder && (sel.state === 'hold' || sel.state === 'winch');
     this.impact.visible = !!showImpact;
     if (showImpact) {
-      const p = predictImpact(s, sel.pos, sel.vel);
-      this.impact.position.set(p.x, 0.12, p.z);
+      // Balcony: the ring marks where the hanging box is over the cradle; otherwise where a drop lands.
+      const dest = selOrder.dest;
+      const p = dest.kind === 'balcony' ? (sel.state === 'winch' ? { x: sel.bob.x, z: sel.bob.z } : sel.pos) : predictImpact(s, sel.pos, sel.vel, dest.y);
+      this.impact.position.set(p.x, dest.y + 0.12, p.z);
     }
+    this.updateRopes(s);
     this.updateCamera(s, dt);
-    for (const l of this.labels) l.visible = this.camera.position.distanceTo(l.position) > 45;
+    const stops = new Set(stageDestinations(s.stage).map(d => d.id));
+    for (const [i, l] of this.labels.entries()) l.visible = stops.has(DESTINATIONS[i].id) && this.camera.position.distanceTo(l.position) > 45;
   }
 
   private updateDrone(d: Drone, m: DroneMesh, dt: number) {
@@ -204,14 +215,31 @@ export class World {
     m.battery.scale.x = Math.max(0.1, d.battery / 100);
   }
 
+  private updateRopes(s: Sim) {
+    const attr = this.ropes.geometry.getAttribute('position') as THREE.BufferAttribute;
+    let n = 0;
+    for (const d of s.drones) {
+      if (d.rope < 0.02) continue;
+      const winch = d.state === 'winch';
+      const bx = winch ? d.bob.x : d.pos.x, bz = winch ? d.bob.z : d.pos.z;
+      attr.setXYZ(n++, d.pos.x, d.pos.y + 0.72, d.pos.z);
+      attr.setXYZ(n++, bx, hangingY(d) + (winch ? 0.34 : 0.7), bz);
+    }
+    this.ropes.geometry.setDrawRange(0, n);
+    this.ropes.visible = n > 0;
+    attr.needsUpdate = true;
+  }
+
   private updateCrates(s: Sim, dt: number) {
     const seen = new Set<number>();
     for (const o of s.orders) {
       let pos: THREE.Vector3 | null = null;
-      if (o.status === 'loaded' || o.status === 'flying') {
-        const pk = s.packages.find((p) => p.orderId === o.id);
+      // A missed roof drop or a lost balcony box keeps falling after the order is judged.
+      const pk = s.packages.find((p) => p.orderId === o.id);
+      if (pk) pos = new THREE.Vector3(pk.pos.x, Math.max(0.35, pk.pos.y), pk.pos.z);
+      else if (o.status === 'loaded' || o.status === 'flying') {
         const d = s.drones.find((dr) => dr.orderId === o.id);
-        if (pk) pos = new THREE.Vector3(pk.pos.x, Math.max(0.35, pk.pos.y), pk.pos.z);
+        if (d?.state === 'winch') pos = new THREE.Vector3(d.bob.x, hangingY(d), d.bob.z);
         else if (d) pos = new THREE.Vector3(d.pos.x, d.pos.y + 0.36, d.pos.z);
       }
       let entry = this.crates.get(o.id);
@@ -225,7 +253,12 @@ export class World {
         seen.add(o.id);
       } else if (entry && (o.status === 'delivered' || o.status === 'missed') && entry.ttl == null) {
         entry.ttl = 12;
-        entry.mesh.position.y = 0.35;
+        entry.mesh.position.y = (o.status === 'delivered' ? o.dest.y : 0) + 0.35;
+        if (o.status === 'delivered' && o.dest.kind === 'balcony') {
+          // A graded release up to 3 m out still ends up on the 3 x 2.7 m tray.
+          const p = entry.mesh.position, off = Math.hypot(p.x - o.dest.x, p.z - o.dest.z);
+          if (off > 0.9) { p.x = o.dest.x + (p.x - o.dest.x) * 0.9 / off; p.z = o.dest.z + (p.z - o.dest.z) * 0.9 / off; }
+        }
         seen.add(o.id);
       } else if (entry && entry.ttl != null) {
         entry.ttl -= dt;
@@ -252,6 +285,13 @@ export class World {
     if (d.state === 'pad' || d.state === 'down') {
       want.set(d.pos.x + 3, 6, d.pos.z + 9);
       look.set(d.pos.x, 0.8, d.pos.z);
+    } else if ((d.state === 'hold' || d.state === 'winch') && orderById(s, d.orderId)?.dest.kind === 'balcony') {
+      // Oblique view from the base side: the facade, the cradle and the swinging box all in frame.
+      const dest = orderById(s, d.orderId)!.dest;
+      const toBase = Math.hypot(dest.x, dest.z) || 1;
+      const bx = d.state === 'winch' ? d.bob.x : d.pos.x, bz = d.state === 'winch' ? d.bob.z : d.pos.z;
+      want.set(dest.x - dest.x / toBase * 13, dest.y + 5, dest.z - dest.z / toBase * 13);
+      look.set(bx, dest.y + 2.5, bz);
     } else if (d.state === 'hold' || d.state === 'approach' || d.state === 'landing' || d.fault === 'gps') {
       want.set(d.pos.x, d.pos.y + 15, d.pos.z + 5);
       look.set(d.pos.x, 0, d.pos.z - 1.5);
