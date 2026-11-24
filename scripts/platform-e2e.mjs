@@ -106,7 +106,7 @@ try {
   // 4. Clear stage 1 through the debug hook: progress PUT unlocked=2 + best, play POST 201.
   await page.click('#b-start');
   await page.click('#b-go');
-  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 5; s.stats.perfect = 2; s.stats.good = 2; s.score = s.stage.target; });
+  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 5; s.stats.perfect = 2; s.stats.good = 2; s.time = 150; s.score = s.stage.target; });
   await waitH1('목표 달성');
   await page.waitForFunction(() => { const t = document.getElementById('ng-status')?.textContent; return t && t !== '기록 저장 중…'; }, null, { timeout: 15000 });
   const put = last('PUT', '/progress');
@@ -168,7 +168,7 @@ try {
   assert.equal(other.status, 200, JSON.stringify(other));
   await page.click('#b-s2');
   await page.click('#b-go');
-  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.score = s.stage.target; });
+  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.time = 150; s.score = s.stage.target; });
   await waitH1('목표 달성');
   await page.waitForFunction(() => { const t = document.getElementById('ng-status')?.textContent; return t && t !== '기록 저장 중…'; }, null, { timeout: 15000 });
   const merged = gamePuts().at(-1);
@@ -188,7 +188,7 @@ try {
   await page.click('#b-title');
   await page.click('#b-s3');
   await page.click('#b-go');
-  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.score = s.stage.target; });
+  await page.evaluate(() => { const s = window.__game.sim; s.stats.delivered = 9; s.time = 150; s.score = s.stage.target; });
   await waitH1('목표 달성');
   await page.waitForFunction(() => { const t = document.getElementById('ng-status')?.textContent; return t && t !== '기록 저장 중…'; }, null, { timeout: 15000 });
   await page.unroute(`${API}/v1/games/dronedeliver/progress`);

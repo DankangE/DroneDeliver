@@ -137,9 +137,9 @@ try {
   step('take-over in the older tab: it is back on the title, the other tab is now locked');
   await A2.close();
 
-  // 5. An implausible play (huge score in 1 s): the API rejects it, the client drops it (one POST, no retry) and tells the player.
+  // 5. An implausible play (1400 points in 1 s): the API rejects it, the client drops it (one POST, no retry) and tells the player.
   const posts0 = mine('A', 'POST', '/plays').length;
-  const t5 = await clear(A, 90000, 1).catch(async () => (await A.textContent('#ng-status')));
+  const t5 = await clear(A, 1400, 1).catch(async () => (await A.textContent('#ng-status')));
   await A.waitForTimeout(3000);
   const bad = mine('A', 'POST', '/plays').slice(posts0);
   assert.equal(bad.length, 1, 'rejected play is not retried: ' + JSON.stringify(bad));
@@ -156,7 +156,8 @@ try {
   const ok = mine('A', 'POST', '/plays').slice(posts1);
   assert.equal(ok.length, 1);
   assert.equal(ok[0].status, 201, JSON.stringify(ok[0]));
-  assert.equal((await api(A, 'GET', '/v1/games/dronedeliver/progress')).body.data.best[1], 800);
+  const fin = await api(A, 'GET', '/v1/games/dronedeliver/progress');
+  assert.equal(fin.body.data.best[1], 800, JSON.stringify({ fin, tail: calls.slice(-4) }));
   step(`normal play: POST ${ok[0].status}, best 800 saved; line "${t6}"`);
 
   assert.deepEqual(errors, []);

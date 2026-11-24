@@ -23,6 +23,7 @@ First-person drone delivery game. Browser only, runs locally. All player-facing 
 - `npm run verify` — typecheck + production build (run before every PR)
 - `npm run build && npm run preview` — serve the built game (`PREVIEW_PORT` or `PORT`, default 4173)
 - `npm run playtest` — needs Google Chrome installed (or `CHROME_PATH`); `PLAYTEST_SPEED`, `PLAYTEST_ONLY=1|2|3|4`, `PLAYTEST_FULL=1`, `HEADED=1`, `PLAYTEST_GL=swiftshader`
+- `NG_API=http://localhost:8790 npm run e2e:save-guard` — save-conflict guard (revision 409 merge, two-tab lock, rejected plays) against a local API with the revision/plausibility rules
 - `NG_API=http://localhost:8790 npm run e2e:platform` — flag-on end-to-end check; local API only (creates throwaway accounts)
 
 ## Rules

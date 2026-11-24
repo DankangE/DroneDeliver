@@ -51,6 +51,7 @@ let user: User | null = null;
 let lost: '' | 'expired' | 'switched' = '';
 let locked = false; // another tab of this account took over; this one stays read-only until the player takes it back
 let progress: Progress = { unlocked: 1, best: {} };
+let confirmed: Progress = { unlocked: 1, best: {} }; // the last copy the server vouched for
 let revision: number | null = null; // the server's progress revision we last saw (null: old API without revisions)
 
 /** main.ts hooks: progress changed from the server (refresh the stage buttons), this tab was locked (stop the shift). */
@@ -168,7 +169,7 @@ async function attempt() {
     if (!me.nickname) return showGate('nickname');
     user = me;
     const saved = await getProgress();
-    progress = cleanProgress(saved.data);
+    progress = confirmed = cleanProgress(saved.data);
     revision = revOf(saved);
     sdk.onChange((u) => {
       if (!user) return;
@@ -262,10 +263,11 @@ function saveProgress(): Promise<void> {
 }
 
 /** Take the server's copy: wholesale when nothing local is unsaved, merged (best = max) otherwise. */
-function adopt(saved: Saved, sending: number | null): boolean {
+function adopt(saved: Saved, keepLocal: boolean): boolean {
   const server = cleanProgress(saved.data);
+  confirmed = server;
   const before = JSON.stringify(progress);
-  progress = sending != null && rev !== sending ? mergeServer(progress, server) : { unlocked: Math.max(server.unlocked, claimedUnlock()), best: server.best };
+  progress = keepLocal ? mergeServer(progress, server) : { unlocked: Math.max(server.unlocked, claimedUnlock()), best: server.best };
   revision = revOf(saved) ?? revision;
   const changed = JSON.stringify(progress) !== before;
   if (changed) platformHooks.onProgress();
@@ -286,19 +288,19 @@ async function putProgress(): Promise<void> {
     const cur = await getProgress();
     const known = revision;
     const others = known != null && revOf(cur) != null && revOf(cur) !== known;
-    adopt(cur, sending);
+    adopt(cur, true); // unsaved local changes are about to be sent: merge, never replace
     let notify = others;
     let r = await putProgressOnce(revision, Math.max(Date.now(), (Number(cur.progressAt) || 0) + 1));
     if (r.conflict) {
       notify = true;
-      adopt(r, sending);
+      adopt(r, true);
       r = await putProgressOnce(revision, Math.max(Date.now(), (Number(r.progressAt) || 0) + 1));
     }
     if (r.conflict) {
-      adopt(r, sending);
+      adopt(r, true);
       throw err('conflict');
     }
-    adopt(r, sending);
+    adopt(r, rev !== sending); // the server's cleaned copy wins unless the player progressed meanwhile
     savedRev = sending;
     saveWait = 0;
     if (notify) toast(MERGED_NOTICE);
@@ -322,7 +324,7 @@ function refreshProgress(): Promise<void> {
     await flushPlays();
     const cur = await getProgress();
     const other = revision != null && revOf(cur) != null && revOf(cur) !== revision;
-    if (adopt(cur, rev !== savedRev ? rev : null) && other) toast(MERGED_NOTICE);
+    if (adopt(cur, rev !== savedRev) && other) toast(MERGED_NOTICE);
     if (rev !== savedRev) void saveProgress().catch(() => {});
   }).catch((e: ApiError) => { if (e.status === 401) lost = 'expired'; });
   saveQueue = run;
@@ -369,6 +371,18 @@ function flushPlays(): Promise<void> {
   return flushing;
 }
 
+// A rejected play must not leave its score or unlock in the local progress (it would be sent with the next save).
+function dropClaim(play: Play) {
+  const k = play.stage as StageKey;
+  const best = { ...progress.best };
+  if (best[k] === play.score) {
+    if (confirmed.best[k] != null) best[k] = confirmed.best[k];
+    else delete best[k];
+  }
+  progress = { unlocked: Math.max(confirmed.unlocked, claimedUnlock()), best };
+  platformHooks.onProgress();
+}
+
 async function drain() {
   while (pending.length && sdk && user && !lost && !locked) {
     const q = pending[0];
@@ -389,6 +403,7 @@ async function drain() {
         return;
       }
       pending.shift();
+      dropClaim(q.play);
       q.done(playError(x));
       if (x.code === 'stage_locked') void refreshProgress();
     }
